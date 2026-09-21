@@ -1,3 +1,5 @@
+/// <reference types="multer" />
+
 export type UserRole = 'admin' | 'tenant';
 
 export interface AuthUser {
