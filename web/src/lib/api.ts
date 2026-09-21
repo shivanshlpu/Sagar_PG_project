@@ -1,4 +1,18 @@
-export const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api/v1';
+function resolveApiUrl(): string {
+  // Explicit env var always wins
+  const envUrl = import.meta.env.VITE_API_URL;
+  if (envUrl) return envUrl;
+
+  // Auto-detect production: Cloudflare Pages → Render backend
+  if (typeof window !== 'undefined' && window.location.hostname === 'sagar-pg-project.pages.dev') {
+    return 'https://sagar-pg-project.onrender.com/api/v1';
+  }
+
+  // Local development fallback
+  return 'http://localhost:3001/api/v1';
+}
+
+export const API_URL = resolveApiUrl();
 
 let accessToken: string | null = localStorage.getItem('accessToken');
 let refreshToken: string | null = localStorage.getItem('refreshToken');

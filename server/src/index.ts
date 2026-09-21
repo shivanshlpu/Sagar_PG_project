@@ -30,7 +30,10 @@ const app = express();
 app.use(helmet());
 app.use(cors({
   origin: env.NODE_ENV === 'production'
-    ? process.env.ALLOWED_ORIGINS?.split(',') || []
+    ? [
+        'https://sagar-pg-project.pages.dev',
+        ...(process.env.ALLOWED_ORIGINS?.split(',').map(o => o.trim()).filter(Boolean) || []),
+      ]
     : ['http://localhost:5173', 'http://localhost:3000'],
   credentials: true,
 }));
