@@ -1,0 +1,21 @@
+# Server dependencies & build
+node_modules/
+dist/
+
+# Environment
+.env
+.env.*
+*.env
+!.env.example
+
+# WhatsApp Baileys session data
+whatsapp-auth/
+baileys_auth_info/
+*auth_info*
+*.auth_state
+sessions/
+**/sessions/
+
+# Logs
+*.log
+logs/

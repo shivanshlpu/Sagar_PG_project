@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" fill="none">
+  <rect width="512" height="512" rx="100" fill="#0F766E"/>
+  <path d="M156 380V210L256 130L356 210V380H296V270H216V380H156Z" fill="#FFFFFF"/>
+  <circle cx="256" cy="200" r="28" fill="#0F766E"/>
+  <text x="256" y="440" text-anchor="middle" fill="#ECFDF5" font-family="system-ui, -apple-system, sans-serif" font-size="44" font-weight="700" letter-spacing="4">PG MANAGER</text>
+</svg>

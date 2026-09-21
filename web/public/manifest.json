@@ -1,0 +1,18 @@
+{
+  "name": "PG Manager — Paying Guest Management",
+  "short_name": "PG Manager",
+  "description": "Multi-tenant Paying Guest management platform for owners and tenants",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#F7F8FA",
+  "theme_color": "#0F766E",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/pwa-icon.svg",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

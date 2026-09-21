@@ -1,0 +1,56 @@
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Production Build Outputs
+dist/
+**/dist/
+dist-ssr/
+build/
+coverage/
+.turbo/
+
+# Environment Variables & Secrets (CRITICAL: Never commit .env files)
+.env
+.env.*
+*.env
+!.env.example
+!web/.env.example
+
+# WhatsApp Session Credentials (CRITICAL: Contains auth tokens)
+whatsapp-auth/
+baileys_auth_info/
+*auth_info*
+*.auth_state
+sessions/
+**/sessions/
+
+# Temporary & Scratch Files
+scratch/
+*.tmp
+*.temp
+uploads/
+
+# Logs
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# IDE & Tooling
+.vscode/
+.idea/
+.gemini/
+.agents/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# OS Generated Files
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini

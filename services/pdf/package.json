@@ -1,0 +1,20 @@
+{
+  "name": "pg-pdf-service",
+  "version": "1.0.0",
+  "private": true,
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx watch src/index.ts"
+  },
+  "dependencies": {
+    "pdfmake": "^0.2.18"
+  },
+  "devDependencies": {
+    "@types/node": "^22.5.0",
+    "@types/pdfmake": "^0.2.11",
+    "tsx": "^4.19.0",
+    "typescript": "^5.5.4"
+  }
+}
