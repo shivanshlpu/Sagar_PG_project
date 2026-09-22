@@ -35,31 +35,31 @@ export function MobileNav() {
 
   const isAdmin = user.role === 'admin';
 
-  const moreItems = isAdmin
-    ? [
-        { to: '/admin/rooms', icon: DoorOpen, label: t('nav.rooms', 'Rooms & Beds') },
-        { to: '/admin/rent', icon: Banknote, label: t('nav.rent', 'Rent Tracking') },
-        { to: '/admin/electricity', icon: Zap, label: t('nav.electricity', 'Electricity Bills') },
-        { to: '/admin/announcements', icon: Megaphone, label: t('nav.announcements', 'Announcements') },
-        { to: '/admin/assets', icon: Package, label: t('nav.assets', 'Assets') },
-        { to: '/admin/reports', icon: BarChart3, label: t('nav.reports', 'Reports & Audit') },
-        { to: '/admin/settings', icon: Settings, label: t('nav.settings', 'PG Settings') },
-      ]
-    : [
-        { to: '/tenant/notifications', icon: Bell, label: t('nav.notifications', 'Notifications') },
-        { to: '/profile', icon: User, label: t('profile', 'My Profile') },
-      ];
+  const adminDrawerItems = [
+    { to: '/admin', icon: LayoutDashboard, label: t('nav.home', 'Home'), end: true },
+    { to: '/admin/tenants', icon: Users, label: t('nav.tenants', 'Tenants') },
+    { to: '/admin/rooms', icon: DoorOpen, label: t('nav.rooms', 'Rooms & Beds') },
+    { to: '/admin/rent', icon: Banknote, label: t('nav.rent', 'Rent') },
+    { to: '/admin/payments', icon: CreditCard, label: t('nav.payments', 'Payments') },
+    { to: '/admin/electricity', icon: Zap, label: t('nav.electricity', 'Electricity') },
+    { to: '/admin/complaints', icon: MessageSquareWarning, label: t('nav.complaints', 'Complaints') },
+    { to: '/admin/announcements', icon: Megaphone, label: t('nav.announcements', 'Notices') },
+    { to: '/admin/assets', icon: Package, label: t('nav.assets', 'Assets') },
+    { to: '/admin/reports', icon: BarChart3, label: t('nav.reports', 'Reports') },
+    { to: '/admin/settings', icon: Settings, label: t('nav.settings', 'Settings') },
+  ];
+
 
   return (
     <>
-      {/* Slide-up "More" Drawer */}
+      {/* Slide-up "More Options / All Features" Drawer */}
       {isAdmin && showMore && (
         <div
           onClick={() => setShowMore(false)}
           style={{
             position: 'fixed',
             inset: 0,
-            backgroundColor: 'rgba(0, 0, 0, 0.5)',
+            backgroundColor: 'rgba(0, 0, 0, 0.55)',
             backdropFilter: 'blur(4px)',
             zIndex: 998,
             display: 'flex',
@@ -73,27 +73,37 @@ export function MobileNav() {
               backgroundColor: 'var(--color-bg-surface)',
               borderTopLeftRadius: 'var(--radius-xl)',
               borderTopRightRadius: 'var(--radius-xl)',
-              padding: '20px 20px 80px',
-              maxHeight: '80vh',
+              padding: '16px 16px 88px',
+              maxHeight: '85vh',
               overflowY: 'auto',
               boxShadow: 'var(--shadow-xl)',
               borderTop: '1px solid var(--color-border)',
             }}
           >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-              <span style={{ fontSize: 'var(--font-size-base)', fontWeight: 600, color: 'var(--color-text-primary)' }}>
-                {isAdmin ? 'More Options' : 'More Features'}
-              </span>
+            {/* Drag Handle */}
+            <div style={{ width: '36px', height: '4px', borderRadius: '2px', backgroundColor: 'var(--color-border)', margin: '0 auto 12px' }} />
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+              <div>
+                <span style={{ fontSize: 'var(--font-size-base)', fontWeight: 700, color: 'var(--color-text-primary)' }}>
+                  All Features & Modules
+                </span>
+                <p style={{ fontSize: '11px', color: 'var(--color-text-muted)', margin: '2px 0 0' }}>
+                  Tap any option to navigate directly
+                </p>
+              </div>
               <button
                 onClick={() => setShowMore(false)}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-muted)' }}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-muted)', padding: '4px' }}
+                aria-label="Close menu"
               >
                 <X size={20} />
               </button>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', marginBottom: '20px' }}>
-              {moreItems.map((item) => (
+            {/* 4-column compact grid for all features */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px', marginBottom: '16px' }}>
+              {adminDrawerItems.map((item) => (
                 <button
                   key={item.to}
                   onClick={() => {
@@ -105,9 +115,9 @@ export function MobileNav() {
                     flexDirection: 'column',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    gap: '8px',
-                    padding: '14px 8px',
-                    borderRadius: 'var(--radius-lg)',
+                    gap: '6px',
+                    padding: '10px 4px',
+                    borderRadius: 'var(--radius-md)',
                     border: '1px solid var(--color-border)',
                     backgroundColor: 'var(--color-bg-surface-alt)',
                     color: 'var(--color-text-primary)',
@@ -115,15 +125,42 @@ export function MobileNav() {
                     fontFamily: 'inherit',
                   }}
                 >
-                  <item.icon size={22} style={{ color: 'var(--color-primary)' }} />
-                  <span style={{ fontSize: '11px', fontWeight: 500, textAlign: 'center' }}>
+                  <item.icon size={20} style={{ color: 'var(--color-primary)' }} />
+                  <span style={{ fontSize: '10px', fontWeight: 600, textAlign: 'center', lineHeight: 1.2 }}>
                     {item.label}
                   </span>
                 </button>
               ))}
+
+              {/* PG AI Button in drawer */}
+              <button
+                onClick={() => {
+                  setShowMore(false);
+                  setIsAIOpen(true);
+                }}
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '6px',
+                  padding: '10px 4px',
+                  borderRadius: 'var(--radius-md)',
+                  border: '1px solid rgba(15, 118, 110, 0.3)',
+                  backgroundColor: 'rgba(15, 118, 110, 0.08)',
+                  color: 'var(--color-primary)',
+                  cursor: 'pointer',
+                  fontFamily: 'inherit',
+                }}
+              >
+                <Bot size={20} style={{ color: 'var(--color-primary)' }} />
+                <span style={{ fontSize: '10px', fontWeight: 700, textAlign: 'center', lineHeight: 1.2 }}>
+                  PG AI
+                </span>
+              </button>
             </div>
 
-            <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: '12px', display: 'flex', gap: '12px' }}>
+            <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: '12px', display: 'flex', gap: '10px' }}>
               <button
                 onClick={() => {
                   navigate('/profile');
@@ -134,18 +171,18 @@ export function MobileNav() {
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  gap: '8px',
+                  gap: '6px',
                   padding: '10px',
                   borderRadius: 'var(--radius-md)',
                   border: '1px solid var(--color-border)',
                   background: 'transparent',
                   cursor: 'pointer',
-                  fontSize: 'var(--font-size-sm)',
-                  fontWeight: 500,
+                  fontSize: 'var(--font-size-xs)',
+                  fontWeight: 600,
                   color: 'var(--color-text-primary)',
                 }}
               >
-                <User size={16} /> Profile
+                <User size={15} /> Profile
               </button>
               <button
                 onClick={() => {
@@ -157,18 +194,18 @@ export function MobileNav() {
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  gap: '8px',
+                  gap: '6px',
                   padding: '10px',
                   borderRadius: 'var(--radius-md)',
                   border: '1px solid var(--color-danger-light)',
                   backgroundColor: 'var(--color-danger-light)',
                   color: 'var(--color-danger)',
                   cursor: 'pointer',
-                  fontSize: 'var(--font-size-sm)',
-                  fontWeight: 500,
+                  fontSize: 'var(--font-size-xs)',
+                  fontWeight: 600,
                 }}
               >
-                <LogOut size={16} /> Logout
+                <LogOut size={15} /> Logout
               </button>
             </div>
           </div>
@@ -188,13 +225,17 @@ export function MobileNav() {
           borderTop: '1px solid var(--color-border)',
           display: 'flex',
           alignItems: 'center',
-          justifyContent: 'space-around',
+          justifyContent: isAdmin ? 'flex-start' : 'space-around',
+          overflowX: isAdmin ? 'auto' : 'visible',
+          WebkitOverflowScrolling: 'touch',
+          padding: isAdmin ? '0 6px' : '0',
+          gap: isAdmin ? '2px' : '0',
           zIndex: 997,
           boxShadow: '0 -2px 10px rgba(0, 0, 0, 0.05)',
         }}
       >
         {isAdmin ? (
-          /* ADMIN NAVIGATION BAR */
+          /* ADMIN NAVIGATION BAR — HORIZONTALLY SCROLLABLE DOCK WITH ALL MODULES */
           <>
             <NavLink
               to="/admin"
@@ -204,17 +245,20 @@ export function MobileNav() {
                 flexDirection: 'column',
                 alignItems: 'center',
                 justifyContent: 'center',
-                gap: '4px',
+                gap: '3px',
                 textDecoration: 'none',
                 color: isActive ? 'var(--color-primary)' : 'var(--color-text-muted)',
                 fontSize: '10px',
-                fontWeight: isActive ? 600 : 500,
-                flex: 1,
+                fontWeight: isActive ? 700 : 500,
+                minWidth: '58px',
+                flexShrink: 0,
                 height: '100%',
+                padding: '0 4px',
                 transition: 'color 150ms ease',
+                whiteSpace: 'nowrap',
               })}
             >
-              <LayoutDashboard size={20} />
+              <LayoutDashboard size={19} />
               <span>{t('nav.home', 'Home')}</span>
             </NavLink>
 
@@ -225,18 +269,69 @@ export function MobileNav() {
                 flexDirection: 'column',
                 alignItems: 'center',
                 justifyContent: 'center',
-                gap: '4px',
+                gap: '3px',
                 textDecoration: 'none',
                 color: isActive ? 'var(--color-primary)' : 'var(--color-text-muted)',
                 fontSize: '10px',
-                fontWeight: isActive ? 600 : 500,
-                flex: 1,
+                fontWeight: isActive ? 700 : 500,
+                minWidth: '58px',
+                flexShrink: 0,
                 height: '100%',
+                padding: '0 4px',
                 transition: 'color 150ms ease',
+                whiteSpace: 'nowrap',
               })}
             >
-              <Users size={20} />
+              <Users size={19} />
               <span>{t('nav.tenants', 'Tenants')}</span>
+            </NavLink>
+
+            <NavLink
+              to="/admin/rooms"
+              style={({ isActive }) => ({
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '3px',
+                textDecoration: 'none',
+                color: isActive ? 'var(--color-primary)' : 'var(--color-text-muted)',
+                fontSize: '10px',
+                fontWeight: isActive ? 700 : 500,
+                minWidth: '58px',
+                flexShrink: 0,
+                height: '100%',
+                padding: '0 4px',
+                transition: 'color 150ms ease',
+                whiteSpace: 'nowrap',
+              })}
+            >
+              <DoorOpen size={19} />
+              <span>{t('nav.rooms', 'Rooms')}</span>
+            </NavLink>
+
+            <NavLink
+              to="/admin/rent"
+              style={({ isActive }) => ({
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '3px',
+                textDecoration: 'none',
+                color: isActive ? 'var(--color-primary)' : 'var(--color-text-muted)',
+                fontSize: '10px',
+                fontWeight: isActive ? 700 : 500,
+                minWidth: '58px',
+                flexShrink: 0,
+                height: '100%',
+                padding: '0 4px',
+                transition: 'color 150ms ease',
+                whiteSpace: 'nowrap',
+              })}
+            >
+              <Banknote size={19} />
+              <span>{t('nav.rent', 'Rent')}</span>
             </NavLink>
 
             {/* Central PG AI Button - ADMIN ONLY */}
@@ -251,14 +346,16 @@ export function MobileNav() {
                 background: 'none',
                 border: 'none',
                 cursor: 'pointer',
-                flex: 1,
+                minWidth: '58px',
+                flexShrink: 0,
                 height: '100%',
+                padding: '0 4px',
               }}
             >
               <div
                 style={{
-                  width: '38px',
-                  height: '38px',
+                  width: '34px',
+                  height: '34px',
                   borderRadius: '50%',
                   backgroundColor: 'var(--color-primary)',
                   color: '#ffffff',
@@ -266,10 +363,10 @@ export function MobileNav() {
                   alignItems: 'center',
                   justifyContent: 'center',
                   boxShadow: '0 2px 8px rgba(15, 118, 110, 0.35)',
-                  marginTop: '-12px',
+                  marginTop: '-8px',
                 }}
               >
-                <Bot size={20} />
+                <Bot size={18} />
               </div>
               <span style={{ fontSize: '10px', fontWeight: 700, color: 'var(--color-primary)' }}>
                 PG AI
@@ -283,18 +380,165 @@ export function MobileNav() {
                 flexDirection: 'column',
                 alignItems: 'center',
                 justifyContent: 'center',
-                gap: '4px',
+                gap: '3px',
                 textDecoration: 'none',
                 color: isActive ? 'var(--color-primary)' : 'var(--color-text-muted)',
                 fontSize: '10px',
-                fontWeight: isActive ? 600 : 500,
-                flex: 1,
+                fontWeight: isActive ? 700 : 500,
+                minWidth: '58px',
+                flexShrink: 0,
                 height: '100%',
+                padding: '0 4px',
                 transition: 'color 150ms ease',
+                whiteSpace: 'nowrap',
               })}
             >
-              <CreditCard size={20} />
+              <CreditCard size={19} />
               <span>{t('nav.payments', 'Payments')}</span>
+            </NavLink>
+
+            <NavLink
+              to="/admin/electricity"
+              style={({ isActive }) => ({
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '3px',
+                textDecoration: 'none',
+                color: isActive ? 'var(--color-primary)' : 'var(--color-text-muted)',
+                fontSize: '10px',
+                fontWeight: isActive ? 700 : 500,
+                minWidth: '58px',
+                flexShrink: 0,
+                height: '100%',
+                padding: '0 4px',
+                transition: 'color 150ms ease',
+                whiteSpace: 'nowrap',
+              })}
+            >
+              <Zap size={19} />
+              <span>{t('nav.electricity', 'Electricity')}</span>
+            </NavLink>
+
+            <NavLink
+              to="/admin/complaints"
+              style={({ isActive }) => ({
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '3px',
+                textDecoration: 'none',
+                color: isActive ? 'var(--color-primary)' : 'var(--color-text-muted)',
+                fontSize: '10px',
+                fontWeight: isActive ? 700 : 500,
+                minWidth: '58px',
+                flexShrink: 0,
+                height: '100%',
+                padding: '0 4px',
+                transition: 'color 150ms ease',
+                whiteSpace: 'nowrap',
+              })}
+            >
+              <MessageSquareWarning size={19} />
+              <span>{t('nav.complaints', 'Complaints')}</span>
+            </NavLink>
+
+            <NavLink
+              to="/admin/announcements"
+              style={({ isActive }) => ({
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '3px',
+                textDecoration: 'none',
+                color: isActive ? 'var(--color-primary)' : 'var(--color-text-muted)',
+                fontSize: '10px',
+                fontWeight: isActive ? 700 : 500,
+                minWidth: '58px',
+                flexShrink: 0,
+                height: '100%',
+                padding: '0 4px',
+                transition: 'color 150ms ease',
+                whiteSpace: 'nowrap',
+              })}
+            >
+              <Megaphone size={19} />
+              <span>{t('nav.announcements', 'Notices')}</span>
+            </NavLink>
+
+            <NavLink
+              to="/admin/assets"
+              style={({ isActive }) => ({
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '3px',
+                textDecoration: 'none',
+                color: isActive ? 'var(--color-primary)' : 'var(--color-text-muted)',
+                fontSize: '10px',
+                fontWeight: isActive ? 700 : 500,
+                minWidth: '58px',
+                flexShrink: 0,
+                height: '100%',
+                padding: '0 4px',
+                transition: 'color 150ms ease',
+                whiteSpace: 'nowrap',
+              })}
+            >
+              <Package size={19} />
+              <span>{t('nav.assets', 'Assets')}</span>
+            </NavLink>
+
+            <NavLink
+              to="/admin/reports"
+              style={({ isActive }) => ({
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '3px',
+                textDecoration: 'none',
+                color: isActive ? 'var(--color-primary)' : 'var(--color-text-muted)',
+                fontSize: '10px',
+                fontWeight: isActive ? 700 : 500,
+                minWidth: '58px',
+                flexShrink: 0,
+                height: '100%',
+                padding: '0 4px',
+                transition: 'color 150ms ease',
+                whiteSpace: 'nowrap',
+              })}
+            >
+              <BarChart3 size={19} />
+              <span>{t('nav.reports', 'Reports')}</span>
+            </NavLink>
+
+            <NavLink
+              to="/admin/settings"
+              style={({ isActive }) => ({
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '3px',
+                textDecoration: 'none',
+                color: isActive ? 'var(--color-primary)' : 'var(--color-text-muted)',
+                fontSize: '10px',
+                fontWeight: isActive ? 700 : 500,
+                minWidth: '58px',
+                flexShrink: 0,
+                height: '100%',
+                padding: '0 4px',
+                transition: 'color 150ms ease',
+                whiteSpace: 'nowrap',
+              })}
+            >
+              <Settings size={19} />
+              <span>{t('nav.settings', 'Settings')}</span>
             </NavLink>
           </>
         ) : (
@@ -422,18 +666,21 @@ export function MobileNav() {
               flexDirection: 'column',
               alignItems: 'center',
               justifyContent: 'center',
-              gap: '4px',
+              gap: '3px',
               background: 'none',
               border: 'none',
               color: showMore ? 'var(--color-primary)' : 'var(--color-text-muted)',
               fontSize: '10px',
-              fontWeight: showMore ? 600 : 500,
-              flex: 1,
+              fontWeight: showMore ? 700 : 500,
+              minWidth: '58px',
+              flexShrink: 0,
               height: '100%',
+              padding: '0 4px',
               cursor: 'pointer',
+              whiteSpace: 'nowrap',
             }}
           >
-            <Menu size={20} />
+            <Menu size={19} />
             <span>{t('nav.more', 'More')}</span>
           </button>
         )}

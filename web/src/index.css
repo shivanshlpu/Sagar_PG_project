@@ -370,6 +370,29 @@
   .mobile-bottom-nav {
     display: none !important;
   }
+  .mobile-payment-list {
+    display: none !important;
+  }
+  .desktop-payment-table {
+    display: block !important;
+  }
+}
+
+.mobile-bottom-nav {
+  overflow-x: auto !important;
+  -webkit-overflow-scrolling: touch !important;
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
+}
+.mobile-bottom-nav::-webkit-scrollbar {
+  display: none !important;
+}
+
+.mobile-payment-list {
+  display: block;
+}
+.desktop-payment-table {
+  display: none;
 }
 
 /* ============================================================
