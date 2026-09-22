@@ -1,11 +1,11 @@
 import { NavLink } from 'react-router-dom';
 import {
+  DoorOpen,
+  Banknote,
   CreditCard,
   Zap,
-  Settings,
-  Menu,
-  LayoutDashboard,
   MessageSquareWarning,
+  LayoutDashboard,
   Wifi,
   Megaphone,
   Bell,
@@ -40,31 +40,51 @@ export function MobileNav() {
       }}
     >
       {isAdmin ? (
-        /* ADMIN BOTTOM BAR: Exactly Payments, Electricity, Settings, and Sidebar Menu button */
+        /* ADMIN BOTTOM BAR: Exactly the 5 requested operational items */
         <>
-          <button
-            onClick={() => window.dispatchEvent(new CustomEvent('toggle-mobile-sidebar'))}
-            style={{
+          <NavLink
+            to="/admin/rooms"
+            style={({ isActive }) => ({
               display: 'flex',
               flexDirection: 'column',
               alignItems: 'center',
               justifyContent: 'center',
               gap: '3px',
-              background: 'none',
-              border: 'none',
-              color: 'var(--color-text-muted)',
-              fontSize: '11px',
-              fontWeight: 600,
+              textDecoration: 'none',
+              color: isActive ? 'var(--color-primary)' : 'var(--color-text-muted)',
+              fontSize: '10px',
+              fontWeight: isActive ? 700 : 500,
               flex: 1,
               height: '100%',
-              cursor: 'pointer',
               transition: 'color 150ms ease',
-            }}
-            aria-label="Open sidebar menu"
+              whiteSpace: 'nowrap',
+            })}
           >
-            <Menu size={20} />
-            <span>Menu</span>
-          </button>
+            <DoorOpen size={20} />
+            <span>Rooms & Beds</span>
+          </NavLink>
+
+          <NavLink
+            to="/admin/rent"
+            style={({ isActive }) => ({
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '3px',
+              textDecoration: 'none',
+              color: isActive ? 'var(--color-primary)' : 'var(--color-text-muted)',
+              fontSize: '10px',
+              fontWeight: isActive ? 700 : 500,
+              flex: 1,
+              height: '100%',
+              transition: 'color 150ms ease',
+              whiteSpace: 'nowrap',
+            })}
+          >
+            <Banknote size={20} />
+            <span>Rent Tracking</span>
+          </NavLink>
 
           <NavLink
             to="/admin/payments"
@@ -76,15 +96,16 @@ export function MobileNav() {
               gap: '3px',
               textDecoration: 'none',
               color: isActive ? 'var(--color-primary)' : 'var(--color-text-muted)',
-              fontSize: '11px',
+              fontSize: '10px',
               fontWeight: isActive ? 700 : 500,
               flex: 1,
               height: '100%',
               transition: 'color 150ms ease',
+              whiteSpace: 'nowrap',
             })}
           >
             <CreditCard size={20} />
-            <span>{t('nav.payments', 'Payments')}</span>
+            <span>Payments</span>
           </NavLink>
 
           <NavLink
@@ -97,19 +118,20 @@ export function MobileNav() {
               gap: '3px',
               textDecoration: 'none',
               color: isActive ? 'var(--color-primary)' : 'var(--color-text-muted)',
-              fontSize: '11px',
+              fontSize: '10px',
               fontWeight: isActive ? 700 : 500,
               flex: 1,
               height: '100%',
               transition: 'color 150ms ease',
+              whiteSpace: 'nowrap',
             })}
           >
             <Zap size={20} />
-            <span>{t('nav.electricity', 'Electricity')}</span>
+            <span>Electricity Bills</span>
           </NavLink>
 
           <NavLink
-            to="/admin/settings"
+            to="/admin/complaints"
             style={({ isActive }) => ({
               display: 'flex',
               flexDirection: 'column',
@@ -118,15 +140,16 @@ export function MobileNav() {
               gap: '3px',
               textDecoration: 'none',
               color: isActive ? 'var(--color-primary)' : 'var(--color-text-muted)',
-              fontSize: '11px',
+              fontSize: '10px',
               fontWeight: isActive ? 700 : 500,
               flex: 1,
               height: '100%',
               transition: 'color 150ms ease',
+              whiteSpace: 'nowrap',
             })}
           >
-            <Settings size={20} />
-            <span>{t('nav.settings', 'Settings')}</span>
+            <MessageSquareWarning size={20} />
+            <span>Complaints</span>
           </NavLink>
         </>
       ) : (

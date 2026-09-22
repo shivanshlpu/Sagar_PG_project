@@ -1,6 +1,6 @@
 import React from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Bell, Search, LogOut, User, Building2, Bot, Languages, Moon, Sun, Settings, Download, Menu } from 'lucide-react';
+import { useNavigate, NavLink } from 'react-router-dom';
+import { Bell, Search, LogOut, User, Bot, Languages, Moon, Sun, Settings, Download, Home } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
 import { useLanguage } from '../../context/LanguageContext';
 import { useTheme } from '../../context/ThemeContext';
@@ -34,42 +34,33 @@ export function TopBar() {
 
   return (
     <header className="topbar-header" style={headerStyle}>
-      {/* Left: Brand / PG Name */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, flexShrink: 1 }}>
-        {user?.role === 'admin' && (
-          <button
-            className="mobile-menu-btn"
-            onClick={() => window.dispatchEvent(new CustomEvent('toggle-mobile-sidebar'))}
-            style={{
-              background: 'none',
-              border: 'none',
-              cursor: 'pointer',
-              padding: '6px',
-              color: 'var(--color-text-primary)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              borderRadius: 'var(--radius-md)',
-              marginRight: '2px',
-            }}
-            aria-label="Open sidebar"
-          >
-            <Menu size={22} />
-          </button>
-        )}
+      {/* Left: Single Clean Home Option / Brand */}
+      <NavLink
+        to={user?.role === 'admin' ? '/admin' : '/tenant'}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '10px',
+          minWidth: 0,
+          flexShrink: 1,
+          textDecoration: 'none',
+          color: 'inherit',
+        }}
+        title="Go to Home"
+      >
         <div style={{
-          width: '34px',
-          height: '34px',
-          borderRadius: '8px',
+          width: '36px',
+          height: '36px',
+          borderRadius: '10px',
           backgroundColor: 'var(--color-primary-light)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
           color: 'var(--color-primary)',
           flexShrink: 0,
-          border: '1px solid rgba(15, 118, 110, 0.15)',
+          border: '1px solid rgba(15, 118, 110, 0.2)',
         }}>
-          <Building2 size={18} />
+          <Home size={19} />
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
           <span style={{
@@ -90,10 +81,10 @@ export function TopBar() {
             lineHeight: 1,
             marginTop: '2px',
           }}>
-            {user?.role === 'admin' ? t('app.admin_portal') : t('app.tenant_portal')}
+            {user?.role === 'admin' ? 'Home • Admin Portal' : 'Home • Tenant Portal'}
           </span>
         </div>
-      </div>
+      </NavLink>
 
       {/* Center: Search (Desktop only) */}
       <div className="desktop-search-container" style={searchContainerStyle}>
