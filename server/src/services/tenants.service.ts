@@ -2,6 +2,7 @@ import { supabaseAdmin } from '../config/supabase';
 import { logAudit } from './auditLog.service';
 import { createNotification } from './notifications.service';
 import { sendWhatsAppMessage } from './whatsapp.service';
+import { formatDateDMY } from '../utils/date';
 import crypto from 'crypto';
 
 function parseTenantMetadata(tenant: any) {
@@ -723,7 +724,8 @@ async function ensureDocumentsBucket() {
         });
 
         if (ownerUser.phone) {
-          const alertMsg = `✅ *Tenant Onboarding Completed — Sagar PG*\n\nTenant: *${tenant.full_name}*\nRoom: *${room.room_number}* | Bed: *${bed.bed_number}*\nMove-in: *${onboardingData.move_in_date}*\n\nDocuments (Aadhaar & College ID) are ready for review in Admin Portal.`;
+          const moveInFormatted = formatDateDMY(onboardingData.move_in_date);
+          const alertMsg = `✅ *Tenant Onboarding Completed — Sagar PG*\n\nTenant: *${tenant.full_name}*\nRoom: *${room.room_number}* | Bed: *${bed.bed_number}*\nMove-in: *${moveInFormatted}*\n\nDocuments (Aadhaar & College ID) are ready for review in Admin Portal.`;
           await sendWhatsAppMessage(ownerUser.phone, alertMsg);
         }
       }

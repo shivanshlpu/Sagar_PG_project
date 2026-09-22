@@ -3,6 +3,7 @@ import { cache } from '../config/redis';
 import { sendWhatsAppMessage, getWhatsAppStatus } from './whatsapp.service';
 import { createNotification } from './notifications.service';
 import { getReminderSettings } from './settings.service';
+import { formatDateDMY } from '../utils/date';
 
 /**
  * Check for overdue or due rent records and dispatch daily reminders via WhatsApp and in-app.
@@ -90,8 +91,9 @@ export async function checkAndSendRentReminders(targetPgId?: string): Promise<{
         continue;
       }
 
-      // Deduplication key: strictly once per day per tenant
-      const dedupKey = `reminder:rent:${tenant.id}:${todayStr}`;
+      // Deduplication key: strictly once per day per tenant (DD-MM-YYYY format)
+      const todayDMY = formatDateDMY(now);
+      const dedupKey = `reminder:rent:${tenant.id}:${todayDMY}`;
       const isFirstToday = await cache.setIfNotExists(dedupKey, 'sent', 86400); // 24 hours
 
       if (!isFirstToday) {
@@ -104,7 +106,7 @@ export async function checkAndSendRentReminders(targetPgId?: string): Promise<{
       staggerIndex++;
 
       const formattedAmount = (record.total_due_paise / 100).toLocaleString('en-IN');
-      const dueDateFormatted = record.due_date ? record.due_date.split('T')[0] : 'Today';
+      const dueDateFormatted = formatDateDMY(record.due_date);
 
       const reminderMessage =
         `🔔 *${pg.name} — Rent Payment Reminder*\n\n` +
