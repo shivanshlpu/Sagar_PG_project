@@ -106,7 +106,6 @@ export const createTenantSchema = z.object({
   room_id: z.union([z.string().uuid(), z.literal(''), z.null()]).optional(),
   bed_id: z.union([z.string().uuid(), z.literal(''), z.null()]).optional(),
   move_in_date: z.union([z.string(), z.literal(''), z.null()]).optional(),
-  expected_leaving_date: z.union([z.string(), z.literal(''), z.null()]).optional(),
   security_deposit: z.coerce.number().min(0).optional(),
   security_deposit_paise: z.number().int().min(0).optional().default(0),
   notes: z.string().max(1000).nullable().optional(),

@@ -83,7 +83,6 @@ export interface Tenant {
   bed_id: string | null;
   move_in_date: string | null;
   move_out_date: string | null;
-  expected_leaving_date?: string | null;
   security_deposit_paise: number;
   status: 'active' | 'inactive' | 'moved_out' | 'pending';
   notes: string | null;

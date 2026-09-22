@@ -38,7 +38,6 @@ interface Tenant {
   room_id?: string | null;
   bed_id?: string | null;
   move_in_date?: string | null;
-  expected_leaving_date?: string | null;
   security_deposit_paise: number;
   status: string;
   notes?: string | null;
@@ -71,7 +70,6 @@ const wizardSchema = z.object({
   // Step 5: Rent & Deposit
   security_deposit: z.coerce.number().min(0),
   move_in_date: z.string().optional(),
-  expected_leaving_date: z.string().optional(),
   notes: z.string().optional(),
 });
 
@@ -105,8 +103,25 @@ export default function AdminTenants() {
   const selectedRoomId = watch('room_id');
   const watchedValues = watch();
 
+  // For new registration: show only rooms with vacant beds.
+  // When editing an existing tenant: show rooms with vacant beds OR their current assigned room.
+  const selectableRooms = React.useMemo(() => {
+    return rooms.filter((r) => {
+      const vacantBedsCount = (r.beds || []).filter((b) => b.status === 'vacant').length;
+      if (editingTenant && r.id === editingTenant.room_id) {
+        return true;
+      }
+      return vacantBedsCount > 0;
+    });
+  }, [rooms, editingTenant]);
+
   const selectedRoom = rooms.find(r => r.id === selectedRoomId);
-  const availableBeds = selectedRoom?.beds?.filter(b => b.status === 'vacant') || [];
+  const availableBeds = React.useMemo(() => {
+    if (!selectedRoom) return [];
+    return (selectedRoom.beds || []).filter(
+      (b) => b.status === 'vacant' || (editingTenant && b.id === editingTenant.bed_id)
+    );
+  }, [selectedRoom, editingTenant]);
 
   const loadTenants = React.useCallback(async () => {
     setIsLoading(true);
@@ -146,7 +161,6 @@ export default function AdminTenants() {
       bed_id: '',
       security_deposit: 0,
       move_in_date: new Date().toISOString().split('T')[0],
-      expected_leaving_date: '',
       notes: '',
     });
     setShowWizard(true);
@@ -170,7 +184,6 @@ export default function AdminTenants() {
       bed_id: tenant.bed_id || '',
       security_deposit: (tenant.security_deposit_paise || 0) / 100,
       move_in_date: tenant.move_in_date ? tenant.move_in_date.split('T')[0] : '',
-      expected_leaving_date: tenant.expected_leaving_date ? tenant.expected_leaving_date.split('T')[0] : '',
       notes: tenant.notes || '',
     });
     setShowWizard(true);
@@ -187,7 +200,6 @@ export default function AdminTenants() {
         bed_id: data.bed_id || null,
         date_of_birth: data.date_of_birth || null,
         move_in_date: data.move_in_date || null,
-        expected_leaving_date: data.expected_leaving_date || null,
         id_proof_type: data.id_proof_type || null,
         id_proof_number: data.id_proof_number || null,
       };
@@ -539,11 +551,14 @@ export default function AdminTenants() {
                 <FormField label="Select Room">
                   <Select
                     options={[
-                      { value: '', label: '— Choose Room —' },
-                      ...rooms.map(r => ({
-                        value: r.id,
-                        label: `Room ${r.room_number} (Floor ${r.floor}) - ₹${(r.base_rent_paise / 100).toLocaleString('en-IN')}/mo`,
-                      })),
+                      { value: '', label: selectableRooms.length > 0 ? '— Choose Room —' : 'No vacant rooms available' },
+                      ...selectableRooms.map(r => {
+                        const vacantCount = (r.beds || []).filter(b => b.status === 'vacant').length;
+                        return {
+                          value: r.id,
+                          label: `Room ${r.room_number} (Floor ${r.floor}) - ₹${(r.base_rent_paise / 100).toLocaleString('en-IN')}/mo (${vacantCount} vacant bed${vacantCount !== 1 ? 's' : ''})`,
+                        };
+                      }),
                     ]}
                     {...register('room_id')}
                     onChange={(e) => {
@@ -560,7 +575,7 @@ export default function AdminTenants() {
                       { value: '', label: availableBeds.length > 0 ? '— Choose Bed —' : 'No vacant beds' },
                       ...availableBeds.map(b => ({
                         value: b.id,
-                        label: `Bed ${b.bed_number}`,
+                        label: `Bed ${b.bed_number}${editingTenant && b.id === editingTenant.bed_id ? ' (Currently Assigned)' : ''}`,
                       })),
                     ]}
                     {...register('bed_id')}
@@ -584,11 +599,8 @@ export default function AdminTenants() {
                   <Input type="date" {...register('move_in_date')} />
                 </FormField>
               </div>
-              <FormField label="Expected Leaving Date (Optional)">
-                <Input type="date" {...register('expected_leaving_date')} />
-              </FormField>
               <FormField label="Internal Notes / Remarks">
-                <Textarea rows={2} placeholder="Any specific requirements or remarks" {...register('notes')} />
+                <Textarea rows={3} placeholder="Any specific requirements or remarks" {...register('notes')} />
               </FormField>
             </div>
           )}

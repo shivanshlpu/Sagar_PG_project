@@ -5,6 +5,30 @@ import { sendWhatsAppMessage } from './whatsapp.service';
 import { formatDateDMY } from '../utils/date';
 import crypto from 'crypto';
 
+function extractCleanNotes(rawNotes: any): string {
+  if (!rawNotes) return '';
+  let current = rawNotes;
+  for (let i = 0; i < 3; i++) {
+    if (typeof current === 'string' && (current.trim().startsWith('{') || current.trim().startsWith('"{'))) {
+      try {
+        const parsed = JSON.parse(current);
+        if (typeof parsed === 'object' && parsed !== null) {
+          current = parsed.custom_notes || parsed.notes || '';
+        } else if (typeof parsed === 'string') {
+          current = parsed;
+        } else {
+          break;
+        }
+      } catch {
+        break;
+      }
+    } else {
+      break;
+    }
+  }
+  return typeof current === 'string' ? current : '';
+}
+
 function parseTenantMetadata(tenant: any) {
   if (!tenant) return tenant;
   let parsedNotes: any = null;
@@ -22,7 +46,7 @@ function parseTenantMetadata(tenant: any) {
     id_proof_type: tenant.id_proof_type || parsedNotes?.id_proof_type || null,
     id_proof_number: tenant.id_proof_number || parsedNotes?.id_proof_number || null,
     college_name: parsedNotes?.college_name || null,
-    expected_leaving_date: tenant.expected_leaving_date || parsedNotes?.expected_leaving_date || null,
+    notes: extractCleanNotes(tenant.notes),
   };
 }
 
@@ -96,7 +120,6 @@ export async function createTenant(
     room_id?: string | null;
     bed_id?: string | null;
     move_in_date?: string | null;
-    expected_leaving_date?: string | null;
     security_deposit_paise?: number;
     notes?: string | null;
   },
@@ -140,8 +163,7 @@ export async function createTenant(
     date_of_birth: tenantData.date_of_birth || null,
     id_proof_type: tenantData.id_proof_type || null,
     id_proof_number: tenantData.id_proof_number || null,
-    expected_leaving_date: tenantData.expected_leaving_date || null,
-    notes: tenantData.notes || null,
+    notes: tenantData.notes ? extractCleanNotes(tenantData.notes) : null,
   };
 
   const { data, error } = await supabaseAdmin
@@ -231,7 +253,6 @@ export async function updateTenant(
     id_type,
     id_number,
     college_name,
-    expected_leaving_date,
     security_deposit,
     notes,
     ...restUpdates
@@ -246,7 +267,7 @@ export async function updateTenant(
     try {
       existingMeta = JSON.parse(existing.notes);
     } catch {
-      existingMeta = { custom_notes: existing.notes };
+      existingMeta = { custom_notes: extractCleanNotes(existing.notes) };
     }
   }
 
@@ -256,7 +277,6 @@ export async function updateTenant(
     effectiveIdType !== undefined ||
     effectiveIdNumber !== undefined ||
     college_name !== undefined ||
-    expected_leaving_date !== undefined ||
     notes !== undefined;
 
   const meta = {
@@ -266,8 +286,7 @@ export async function updateTenant(
     id_proof_type: effectiveIdType !== undefined ? (effectiveIdType || null) : (existingMeta.id_proof_type ?? existing.id_proof_type ?? null),
     id_proof_number: effectiveIdNumber !== undefined ? (effectiveIdNumber || null) : (existingMeta.id_proof_number ?? existing.id_proof_number ?? null),
     college_name: college_name !== undefined ? (college_name || null) : (existingMeta.college_name ?? existing.college_name ?? null),
-    expected_leaving_date: expected_leaving_date !== undefined ? (expected_leaving_date || null) : (existingMeta.expected_leaving_date ?? null),
-    custom_notes: notes !== undefined ? (notes || null) : (existingMeta.custom_notes ?? null),
+    custom_notes: notes !== undefined ? (extractCleanNotes(notes) || null) : (existingMeta.custom_notes ?? null),
   };
 
   // Explicitly whitelist ONLY actual valid DB columns for tenants table

@@ -118,8 +118,13 @@ export function TenantOnboarding({ onComplete }: TenantOnboardingProps) {
     loadRooms();
   }, []);
 
-  const selectedRoom = rooms.find((r) => r.id === selectedRoomId);
-  const availableBeds = selectedRoom?.beds || [];
+  // Filter rooms to strictly only rooms with vacant beds
+  const vacantRooms = React.useMemo(() => {
+    return rooms.filter((r) => (r.beds || []).some((b) => b.status === 'vacant'));
+  }, [rooms]);
+
+  const selectedRoom = vacantRooms.find((r) => r.id === selectedRoomId);
+  const availableBeds = (selectedRoom?.beds || []).filter((b) => b.status === 'vacant');
 
   // File Upload Handlers with Automatic Client Compression
   const handleAadhaarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -406,7 +411,7 @@ export function TenantOnboarding({ onComplete }: TenantOnboardingProps) {
                   <div className="skeleton" style={{ height: '44px', borderRadius: 'var(--radius-md)' }} />
                   <div className="skeleton" style={{ height: '44px', borderRadius: 'var(--radius-md)' }} />
                 </div>
-              ) : rooms.length === 0 ? (
+              ) : vacantRooms.length === 0 ? (
                 <div style={{
                   padding: '24px',
                   textAlign: 'center',
@@ -414,8 +419,8 @@ export function TenantOnboarding({ onComplete }: TenantOnboardingProps) {
                   borderRadius: 'var(--radius-md)',
                   color: 'var(--color-text-secondary)',
                 }}>
-                  <p style={{ fontWeight: 600 }}>No vacant rooms available currently.</p>
-                  <p style={{ fontSize: 'var(--font-size-xs)', marginTop: '4px' }}>Please contact the PG manager for bed assignment.</p>
+                  <p style={{ fontWeight: 600 }}>{language === 'hi' ? 'फिलहाल कोई खाली कमरा उपलब्ध नहीं है।' : 'No vacant rooms available currently.'}</p>
+                  <p style={{ fontSize: 'var(--font-size-xs)', marginTop: '4px' }}>{language === 'hi' ? 'कृपया बिस्तर आवंटन के लिए पीजी प्रबंधक से संपर्क करें।' : 'Please contact the PG manager for bed assignment.'}</p>
                 </div>
               ) : (
                 <>
@@ -423,11 +428,14 @@ export function TenantOnboarding({ onComplete }: TenantOnboardingProps) {
                     <FormField label={language === 'hi' ? 'कमरा चुनें' : 'Select Room'} error={errors.room_id?.message} required>
                       <Select
                         options={[
-                          { value: '', label: '— Choose Room —' },
-                          ...rooms.map((r) => ({
-                            value: r.id,
-                            label: `Room ${r.room_number} (Floor ${r.floor}) - ₹${(r.base_rent_paise / 100).toLocaleString('en-IN')}/mo`,
-                          })),
+                          { value: '', label: language === 'hi' ? '— कमरा चुनें —' : '— Choose Room —' },
+                          ...vacantRooms.map((r) => {
+                            const vacantCount = (r.beds || []).filter((b) => b.status === 'vacant').length;
+                            return {
+                              value: r.id,
+                              label: `Room ${r.room_number} (Floor ${r.floor}) - ₹${(r.base_rent_paise / 100).toLocaleString('en-IN')}/mo (${vacantCount} ${language === 'hi' ? 'खाली बिस्तर' : `vacant bed${vacantCount !== 1 ? 's' : ''}`})`,
+                            };
+                          }),
                         ]}
                         {...register('room_id')}
                         onChange={(e) => {
