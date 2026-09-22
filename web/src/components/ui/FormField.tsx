@@ -36,10 +36,22 @@ interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
 }
 
 export const Input = React.forwardRef<HTMLInputElement, InputProps>(
-  ({ error, style, ...props }, ref) => {
+  ({ error, style, onWheel, onFocus, ...props }, ref) => {
     return (
       <input
         ref={ref}
+        onWheel={(e) => {
+          if (props.type === 'number') {
+            e.currentTarget.blur();
+          }
+          onWheel?.(e);
+        }}
+        onFocus={(e) => {
+          if (props.type === 'number' && e.target.value === '0') {
+            e.target.select();
+          }
+          onFocus?.(e);
+        }}
         style={{
           ...inputBaseStyle,
           borderColor: error ? 'var(--color-danger)' : 'var(--color-border)',

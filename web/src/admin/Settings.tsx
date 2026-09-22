@@ -56,10 +56,10 @@ interface WhatsAppStatusData {
 }
 
 interface ReminderSettings {
-  rent_reminder_day: number;
-  rent_due_day: number;
-  late_fee_grace_days: number;
-  late_fee_paise: number;
+  rent_reminder_day: number | string;
+  rent_due_day: number | string;
+  late_fee_grace_days: number | string;
+  late_fee_paise: number | string;
   electricity_reminder_enabled: boolean;
 }
 
@@ -119,7 +119,10 @@ export default function AdminSettings() {
   });
 
   // --- Billing Settings State ---
-  const [billingSettings, setBillingSettings] = React.useState({
+  const [billingSettings, setBillingSettings] = React.useState<{
+    electricity_rate_per_unit: number | string;
+    maintenance_charge: number | string;
+  }>({
     electricity_rate_per_unit: 12,
     maintenance_charge: 500,
   });
@@ -355,7 +358,14 @@ export default function AdminSettings() {
   }
 
   async function handleSaveReminders() {
-    const res = await apiPatch('/settings/reminders', reminders);
+    const payload = {
+      rent_reminder_day: reminders.rent_reminder_day === '' ? 1 : Number(reminders.rent_reminder_day),
+      rent_due_day: reminders.rent_due_day === '' ? 5 : Number(reminders.rent_due_day),
+      late_fee_grace_days: reminders.late_fee_grace_days === '' ? 0 : Number(reminders.late_fee_grace_days),
+      late_fee_paise: reminders.late_fee_paise === '' ? 0 : Number(reminders.late_fee_paise),
+      electricity_reminder_enabled: Boolean(reminders.electricity_reminder_enabled),
+    };
+    const res = await apiPatch('/settings/reminders', payload);
     if (res.success) {
       showToast('Reminder schedule saved');
     } else {
@@ -376,9 +386,11 @@ export default function AdminSettings() {
 
   async function handleSaveBilling() {
     setIsSavingBilling(true);
+    const rateNum = billingSettings.electricity_rate_per_unit === '' ? 0 : Number(billingSettings.electricity_rate_per_unit);
+    const maintNum = billingSettings.maintenance_charge === '' ? 0 : Number(billingSettings.maintenance_charge);
     const res = await apiPatch('/settings/billing', {
-      electricity_rate_per_unit_paise: Math.round(billingSettings.electricity_rate_per_unit * 100),
-      maintenance_charge_paise: Math.round(billingSettings.maintenance_charge * 100),
+      electricity_rate_per_unit_paise: Math.round(rateNum * 100),
+      maintenance_charge_paise: Math.round(maintNum * 100),
     });
     if (res.success) {
       showToast('Billing rates and charges saved successfully');
@@ -927,9 +939,10 @@ export default function AdminSettings() {
               min={1}
               max={28}
               value={reminders.rent_reminder_day}
-              onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                setReminders((prev) => ({ ...prev, rent_reminder_day: parseInt(e.target.value, 10) || 1 }))
-              }
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                const val = e.target.value;
+                setReminders((prev) => ({ ...prev, rent_reminder_day: val }));
+              }}
             />
           </FormField>
 
@@ -939,9 +952,10 @@ export default function AdminSettings() {
               min={1}
               max={28}
               value={reminders.rent_due_day}
-              onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                setReminders((prev) => ({ ...prev, rent_due_day: parseInt(e.target.value, 10) || 5 }))
-              }
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                const val = e.target.value;
+                setReminders((prev) => ({ ...prev, rent_due_day: val }));
+              }}
             />
           </FormField>
 
@@ -951,9 +965,10 @@ export default function AdminSettings() {
               min={0}
               max={30}
               value={reminders.late_fee_grace_days}
-              onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                setReminders((prev) => ({ ...prev, late_fee_grace_days: parseInt(e.target.value, 10) || 0 }))
-              }
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                const val = e.target.value;
+                setReminders((prev) => ({ ...prev, late_fee_grace_days: val }));
+              }}
             />
           </FormField>
 
@@ -962,9 +977,10 @@ export default function AdminSettings() {
               type="number"
               min={0}
               value={reminders.late_fee_paise}
-              onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                setReminders((prev) => ({ ...prev, late_fee_paise: parseInt(e.target.value, 10) || 0 }))
-              }
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                const val = e.target.value;
+                setReminders((prev) => ({ ...prev, late_fee_paise: val }));
+              }}
             />
           </FormField>
 
@@ -1013,9 +1029,10 @@ export default function AdminSettings() {
                     step="0.5"
                     min={0}
                     value={billingSettings.electricity_rate_per_unit}
-                    onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                      setBillingSettings((prev) => ({ ...prev, electricity_rate_per_unit: parseFloat(e.target.value) || 0 }))
-                    }
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                      const val = e.target.value;
+                      setBillingSettings((prev) => ({ ...prev, electricity_rate_per_unit: val }));
+                    }}
                   />
                   <span style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-secondary)', whiteSpace: 'nowrap' }}>
                     ₹ / unit
@@ -1033,9 +1050,10 @@ export default function AdminSettings() {
                     type="number"
                     min={0}
                     value={billingSettings.maintenance_charge}
-                    onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                      setBillingSettings((prev) => ({ ...prev, maintenance_charge: parseFloat(e.target.value) || 0 }))
-                    }
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                      const val = e.target.value;
+                      setBillingSettings((prev) => ({ ...prev, maintenance_charge: val }));
+                    }}
                   />
                   <span style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-secondary)', whiteSpace: 'nowrap' }}>
                     ₹ / month

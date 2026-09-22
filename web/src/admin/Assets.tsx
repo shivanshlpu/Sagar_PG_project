@@ -56,7 +56,7 @@ export default function AdminAssets() {
   // Form states
   const [formRoomId, setFormRoomId] = React.useState('');
   const [formName, setFormName] = React.useState('');
-  const [formQuantity, setFormQuantity] = React.useState(1);
+  const [formQuantity, setFormQuantity] = React.useState<number | string>(1);
   const [formCondition, setFormCondition] = React.useState<'good' | 'fair' | 'poor' | 'damaged' | 'replaced'>('good');
   const [formDescription, setFormDescription] = React.useState('');
   const [formNotes, setFormNotes] = React.useState('');
@@ -129,7 +129,7 @@ export default function AdminAssets() {
       const res = await apiPatch(`/assets/${editingAsset.id}`, {
         room_id: formRoomId,
         name: formName.trim(),
-        quantity: Number(formQuantity),
+        quantity: Number(formQuantity) || 1,
         condition: formCondition,
         description: formDescription.trim() || null,
         notes: formNotes.trim() || null,
@@ -145,7 +145,7 @@ export default function AdminAssets() {
       const res = await apiPost('/assets', {
         room_id: formRoomId,
         name: formName.trim(),
-        quantity: Number(formQuantity),
+        quantity: Number(formQuantity) || 1,
         condition: formCondition,
         description: formDescription.trim() || null,
         notes: formNotes.trim() || null,
@@ -404,7 +404,7 @@ export default function AdminAssets() {
                 type="number"
                 min={1}
                 value={formQuantity}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFormQuantity(parseInt(e.target.value, 10) || 1)}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFormQuantity(e.target.value)}
               />
             </FormField>
 
