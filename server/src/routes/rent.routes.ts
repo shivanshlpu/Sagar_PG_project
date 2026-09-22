@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import * as rentService from '../services/rent.service';
+import { checkAndSendRentReminders } from '../services/reminders.service';
 import { authenticate, authorize, requirePg } from '../middleware/auth';
 import { validate, validateQuery } from '../middleware/validate';
 import { generateRentSchema, updateRentSchema, rentQuerySchema } from '../schemas';
@@ -7,6 +8,20 @@ import { generateRentSchema, updateRentSchema, rentQuerySchema } from '../schema
 const router = Router();
 
 router.use(authenticate, requirePg);
+
+// POST /rent/send-reminders [Admin] — manually trigger rent reminder check for this PG
+router.post('/send-reminders', authorize('admin'), async (req: Request, res: Response) => {
+  try {
+    const stats = await checkAndSendRentReminders(req.user!.pgId);
+    res.json({
+      success: true,
+      message: `Rent reminders processed: ${stats.sent} sent, ${stats.skippedAlreadySent} already sent today, ${stats.skippedNoPhone} skipped (no phone).`,
+      data: stats,
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: (err as Error).message });
+  }
+});
 
 // GET /rent and /rent/records [Admin]
 router.get(['/', '/records'], authorize('admin'), validateQuery(rentQuerySchema), async (req: Request, res: Response) => {

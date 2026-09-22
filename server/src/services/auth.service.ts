@@ -3,6 +3,7 @@ import { supabaseAdmin } from '../config/supabase';
 import { env } from '../config/env';
 import jwt from 'jsonwebtoken';
 import { AuthUser, UserRole } from '../types';
+import { createNotification } from './notifications.service';
 
 // Refresh token lifetime: 30 days (bounded but long, so user is not repeatedly prompted)
 const ACCESS_TOKEN_EXPIRY = '1h';
@@ -117,6 +118,37 @@ export async function register(
 
     if (tenantErr) throw new Error(tenantErr.message);
     pgId = tenantRecord.pg_id;
+
+    // Notify PG Admin about new tenant registration
+    if (pgId) {
+      (async () => {
+        try {
+          const { data: pgData } = await supabaseAdmin
+            .from('pgs')
+            .select('name, owner:admins!owner_id(user_id, phone, full_name)')
+            .eq('id', pgId)
+            .single();
+
+          const ownerUser = (pgData?.owner as any);
+          if (ownerUser?.user_id) {
+            await createNotification({
+              userId: ownerUser.user_id,
+              title: 'New Tenant Registered',
+              message: `${fullName} (${phone || email}) has registered and is pending onboarding.`,
+              type: 'tenant_registered',
+              metadata: { tenantId: tenantRecord.id, email, phone },
+            });
+
+            if (ownerUser.phone) {
+              const alertMsg = `📢 *New Tenant Registration — Sagar PG*\n\nName: *${fullName}*\nPhone: *${phone || 'N/A'}*\nEmail: *${email}*\n\nPlease review in the Admin Portal.`;
+              await sendWhatsAppMessage(ownerUser.phone, alertMsg);
+            }
+          }
+        } catch (e: any) {
+          console.warn('[Notification] Failed to alert admin of new tenant:', e.message);
+        }
+      })();
+    }
   }
 
   // Get the tenant record ID if role is tenant

@@ -93,6 +93,7 @@ app.use((err: Error, _req: express.Request, res: express.Response, _next: expres
 });
 
 import { initWhatsAppIfSessionExists } from './services/whatsapp.service';
+import { startReminderCron } from './services/reminders.service';
 
 // Keep-Alive Worker for free-tier hosting (e.g. Render / Railway)
 function startKeepAlive() {
@@ -117,6 +118,7 @@ app.listen(env.PORT, () => {
   console.log(`Environment: ${env.NODE_ENV}`);
   initWhatsAppIfSessionExists();
   startKeepAlive();
+  startReminderCron();
 });
 
 export default app;

@@ -1,5 +1,7 @@
 import { supabaseAdmin } from '../config/supabase';
 import { logAudit } from './auditLog.service';
+import { createNotification } from './notifications.service';
+import { sendWhatsAppMessage } from './whatsapp.service';
 import crypto from 'crypto';
 
 function parseTenantMetadata(tenant: any) {
@@ -570,7 +572,7 @@ export async function completeTenantOnboarding(
   // 4. Validate Room & Bed
   const { data: room } = await supabaseAdmin
     .from('rooms')
-    .select('id, occupied_beds, total_beds')
+    .select('id, room_number, occupied_beds, total_beds')
     .eq('id', onboardingData.room_id)
     .eq('pg_id', pgId)
     .single();
@@ -579,7 +581,7 @@ export async function completeTenantOnboarding(
 
   const { data: bed } = await supabaseAdmin
     .from('beds')
-    .select('id, status')
+    .select('id, bed_number, status')
     .eq('id', onboardingData.bed_id)
     .eq('room_id', onboardingData.room_id)
     .eq('pg_id', pgId)
@@ -700,6 +702,35 @@ async function ensureDocumentsBucket() {
       college_id_file: collegeUpload.path,
     },
   });
+
+  // Notify PG Admin
+  (async () => {
+    try {
+      const { data: pgData } = await supabaseAdmin
+        .from('pgs')
+        .select('name, owner:admins!owner_id(user_id, phone, full_name)')
+        .eq('id', pgId)
+        .single();
+
+      const ownerUser = (pgData?.owner as any);
+      if (ownerUser?.user_id) {
+        await createNotification({
+          userId: ownerUser.user_id,
+          title: 'Tenant Onboarding Completed',
+          message: `${tenant.full_name} completed onboarding for Room ${room.room_number}, Bed ${bed.bed_number}.`,
+          type: 'tenant_onboarding',
+          metadata: { tenantId, roomId: onboardingData.room_id, bedId: onboardingData.bed_id },
+        });
+
+        if (ownerUser.phone) {
+          const alertMsg = `✅ *Tenant Onboarding Completed — Sagar PG*\n\nTenant: *${tenant.full_name}*\nRoom: *${room.room_number}* | Bed: *${bed.bed_number}*\nMove-in: *${onboardingData.move_in_date}*\n\nDocuments (Aadhaar & College ID) are ready for review in Admin Portal.`;
+          await sendWhatsAppMessage(ownerUser.phone, alertMsg);
+        }
+      }
+    } catch (e: any) {
+      console.warn('[Notification] Failed to alert admin of tenant onboarding:', e.message);
+    }
+  })();
 
   return parseTenantMetadata(updatedTenant);
 }
