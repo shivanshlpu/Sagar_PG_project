@@ -1,6 +1,6 @@
 import React from 'react';
 import { useNavigate, NavLink } from 'react-router-dom';
-import { Bell, Search, LogOut, User, Bot, Languages, Moon, Sun, Settings, Download, Home } from 'lucide-react';
+import { Bell, Search, LogOut, User, Bot, Languages, Moon, Sun, Settings, Download, Menu } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
 import { useLanguage } from '../../context/LanguageContext';
 import { useTheme } from '../../context/ThemeContext';
@@ -34,35 +34,42 @@ export function TopBar() {
 
   return (
     <header className="topbar-header" style={headerStyle}>
-      {/* Left: Single Clean Home Option / Brand */}
-      <NavLink
-        to={user?.role === 'admin' ? '/admin' : '/tenant'}
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '10px',
-          minWidth: 0,
-          flexShrink: 1,
-          textDecoration: 'none',
-          color: 'inherit',
-        }}
-        title="Go to Home"
-      >
-        <div style={{
-          width: '36px',
-          height: '36px',
-          borderRadius: '10px',
-          backgroundColor: 'var(--color-primary-light)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          color: 'var(--color-primary)',
-          flexShrink: 0,
-          border: '1px solid rgba(15, 118, 110, 0.2)',
-        }}>
-          <Home size={19} />
-        </div>
-        <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+      {/* Left: Upper Sidebar Option & Brand */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0, flexShrink: 1 }}>
+        {/* Upper Sidebar Option (Mobile Menu / Sidebar Drawer Toggle) */}
+        {user?.role === 'admin' && (
+          <button
+            onClick={() => window.dispatchEvent(new CustomEvent('toggle-mobile-sidebar'))}
+            className="mobile-menu-btn"
+            style={{
+              ...iconButtonStyle,
+              width: '36px',
+              height: '36px',
+              justifyContent: 'center',
+              borderRadius: 'var(--radius-md)',
+              backgroundColor: 'var(--color-bg-surface-alt)',
+              border: '1px solid var(--color-border)',
+              color: 'var(--color-text-primary)',
+              flexShrink: 0,
+            }}
+            aria-label="Toggle sidebar menu"
+            title="Open Sidebar"
+          >
+            <Menu size={20} />
+          </button>
+        )}
+
+        <NavLink
+          to={user?.role === 'admin' ? '/admin' : '/tenant'}
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            minWidth: 0,
+            textDecoration: 'none',
+            color: 'inherit',
+          }}
+          title={user?.role === 'admin' ? 'Admin Portal' : 'Tenant Portal'}
+        >
           <span style={{
             fontSize: '15px',
             fontWeight: 700,
@@ -81,10 +88,10 @@ export function TopBar() {
             lineHeight: 1,
             marginTop: '2px',
           }}>
-            {user?.role === 'admin' ? 'Home • Admin Portal' : 'Home • Tenant Portal'}
+            {user?.role === 'admin' ? 'Admin Portal' : 'Tenant Portal'}
           </span>
-        </div>
-      </NavLink>
+        </NavLink>
+      </div>
 
       {/* Center: Search (Desktop only) */}
       <div className="desktop-search-container" style={searchContainerStyle}>

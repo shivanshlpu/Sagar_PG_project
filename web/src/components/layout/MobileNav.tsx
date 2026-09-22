@@ -1,5 +1,6 @@
 import { NavLink } from 'react-router-dom';
 import {
+  Home,
   DoorOpen,
   Banknote,
   CreditCard,
@@ -40,8 +41,34 @@ export function MobileNav() {
       }}
     >
       {isAdmin ? (
-        /* ADMIN BOTTOM BAR: Exactly the 5 requested operational items */
+        /* ADMIN BOTTOM BAR: Exactly the 6 requested items in exact order */
         <>
+          <NavLink
+            to="/admin"
+            end
+            style={({ isActive }) => ({
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '2px',
+              textDecoration: 'none',
+              color: isActive ? 'var(--color-primary)' : 'var(--color-text-muted)',
+              fontSize: '9.5px',
+              fontWeight: isActive ? 700 : 500,
+              flex: 1,
+              minWidth: 0,
+              height: '100%',
+              padding: '4px 2px',
+              transition: 'color 150ms ease',
+              textAlign: 'center',
+              whiteSpace: 'nowrap',
+            })}
+          >
+            <Home size={19} />
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100%', lineHeight: 1.1 }}>Home</span>
+          </NavLink>
+
           <NavLink
             to="/admin/rooms"
             style={({ isActive }) => ({
@@ -49,19 +76,22 @@ export function MobileNav() {
               flexDirection: 'column',
               alignItems: 'center',
               justifyContent: 'center',
-              gap: '3px',
+              gap: '2px',
               textDecoration: 'none',
               color: isActive ? 'var(--color-primary)' : 'var(--color-text-muted)',
-              fontSize: '10px',
+              fontSize: '9.5px',
               fontWeight: isActive ? 700 : 500,
               flex: 1,
+              minWidth: 0,
               height: '100%',
+              padding: '4px 2px',
               transition: 'color 150ms ease',
+              textAlign: 'center',
               whiteSpace: 'nowrap',
             })}
           >
-            <DoorOpen size={20} />
-            <span>Rooms & Beds</span>
+            <DoorOpen size={19} />
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100%', lineHeight: 1.1 }}>Room & Bed</span>
           </NavLink>
 
           <NavLink
@@ -71,19 +101,22 @@ export function MobileNav() {
               flexDirection: 'column',
               alignItems: 'center',
               justifyContent: 'center',
-              gap: '3px',
+              gap: '2px',
               textDecoration: 'none',
               color: isActive ? 'var(--color-primary)' : 'var(--color-text-muted)',
-              fontSize: '10px',
+              fontSize: '9.5px',
               fontWeight: isActive ? 700 : 500,
               flex: 1,
+              minWidth: 0,
               height: '100%',
+              padding: '4px 2px',
               transition: 'color 150ms ease',
+              textAlign: 'center',
               whiteSpace: 'nowrap',
             })}
           >
-            <Banknote size={20} />
-            <span>Rent Tracking</span>
+            <Banknote size={19} />
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100%', lineHeight: 1.1 }}>Rent Tracking</span>
           </NavLink>
 
           <NavLink
@@ -93,19 +126,22 @@ export function MobileNav() {
               flexDirection: 'column',
               alignItems: 'center',
               justifyContent: 'center',
-              gap: '3px',
+              gap: '2px',
               textDecoration: 'none',
               color: isActive ? 'var(--color-primary)' : 'var(--color-text-muted)',
-              fontSize: '10px',
+              fontSize: '9.5px',
               fontWeight: isActive ? 700 : 500,
               flex: 1,
+              minWidth: 0,
               height: '100%',
+              padding: '4px 2px',
               transition: 'color 150ms ease',
+              textAlign: 'center',
               whiteSpace: 'nowrap',
             })}
           >
-            <CreditCard size={20} />
-            <span>Payments</span>
+            <CreditCard size={19} />
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100%', lineHeight: 1.1 }}>Payments</span>
           </NavLink>
 
           <NavLink
@@ -115,19 +151,22 @@ export function MobileNav() {
               flexDirection: 'column',
               alignItems: 'center',
               justifyContent: 'center',
-              gap: '3px',
+              gap: '2px',
               textDecoration: 'none',
               color: isActive ? 'var(--color-primary)' : 'var(--color-text-muted)',
-              fontSize: '10px',
+              fontSize: '9.5px',
               fontWeight: isActive ? 700 : 500,
               flex: 1,
+              minWidth: 0,
               height: '100%',
+              padding: '4px 2px',
               transition: 'color 150ms ease',
+              textAlign: 'center',
               whiteSpace: 'nowrap',
             })}
           >
-            <Zap size={20} />
-            <span>Electricity Bills</span>
+            <Zap size={19} />
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100%', lineHeight: 1.1 }}>Electricity Bills</span>
           </NavLink>
 
           <NavLink
@@ -137,19 +176,22 @@ export function MobileNav() {
               flexDirection: 'column',
               alignItems: 'center',
               justifyContent: 'center',
-              gap: '3px',
+              gap: '2px',
               textDecoration: 'none',
               color: isActive ? 'var(--color-primary)' : 'var(--color-text-muted)',
-              fontSize: '10px',
+              fontSize: '9.5px',
               fontWeight: isActive ? 700 : 500,
               flex: 1,
+              minWidth: 0,
               height: '100%',
+              padding: '4px 2px',
               transition: 'color 150ms ease',
+              textAlign: 'center',
               whiteSpace: 'nowrap',
             })}
           >
-            <MessageSquareWarning size={20} />
-            <span>Complaints</span>
+            <MessageSquareWarning size={19} />
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100%', lineHeight: 1.1 }}>Complaints</span>
           </NavLink>
         </>
       ) : (
