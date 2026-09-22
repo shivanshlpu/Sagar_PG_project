@@ -3,10 +3,10 @@ import { Card } from '../components/ui/Card';
 import { Badge, getStatusBadgeVariant } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
 import { Modal } from '../components/ui/Modal';
-import { FormField, Input, Select } from '../components/ui/FormField';
+import { FormField, Input, Select, Textarea } from '../components/ui/FormField';
 import { useToast } from '../components/ui/Toast';
 import { useAuth } from '../hooks/useAuth';
-import { apiGet, apiPost, formatCurrency, formatMonth } from '../lib/api';
+import { apiGet, apiPost, formatCurrency, formatMonth, extractReferenceId } from '../lib/api';
 import {
   Zap,
   Home,
@@ -21,6 +21,7 @@ import {
   Clock,
   Landmark,
   CheckCircle2,
+  DoorOpen,
 } from 'lucide-react';
 
 interface TenantBillingSummary {
@@ -33,6 +34,8 @@ interface TenantBillingSummary {
     floor: number;
     room_type: string;
     base_rent_paise: number;
+    status?: string;
+    move_out_date?: string | null;
   };
   billingSettings: {
     electricity_rate_per_unit_paise: number;
@@ -183,6 +186,32 @@ export default function TenantDashboard() {
     setIsSubmitting(false);
   }
 
+  // Vacate / Leaving notice state
+  const [showVacateModal, setShowVacateModal] = React.useState(false);
+  const [leavingDate, setLeavingDate] = React.useState(new Date().toISOString().slice(0, 10));
+  const [leavingReason, setLeavingReason] = React.useState('');
+  const [isVacating, setIsVacating] = React.useState(false);
+
+  async function handleVacateSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!user?.tenantId) return;
+
+    setIsVacating(true);
+    const res = await apiPost(`/tenants/${user.tenantId}/vacate`, {
+      leaving_date: leavingDate,
+      reason: leavingReason.trim() || undefined,
+    });
+
+    if (res.success) {
+      showToast('You have marked yourself as leaving. Your bed is now marked vacant for other residents.');
+      setShowVacateModal(false);
+      await loadBillingSummary();
+    } else {
+      showToast(res.error || 'Failed to submit vacate notice', 'error');
+    }
+    setIsVacating(false);
+  }
+
   if (isLoading) {
     return (
       <div className="page-container">
@@ -238,13 +267,58 @@ export default function TenantDashboard() {
           </div>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <ShieldCheck size={18} style={{ color: 'var(--color-success)' }} />
-          <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', fontWeight: 500 }}>
-            Read-Only Verified Statement
-          </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+          {data?.tenant.status === 'moved_out' ? (
+            <Badge variant="neutral">Moved Out / Vacated</Badge>
+          ) : (
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => setShowVacateModal(true)}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                color: 'var(--color-danger)',
+                borderColor: 'var(--color-danger)',
+                fontWeight: 600,
+              }}
+            >
+              <DoorOpen size={15} /> Mark as Leaving
+            </Button>
+          )}
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <ShieldCheck size={18} style={{ color: 'var(--color-success)' }} />
+            <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', fontWeight: 500 }}>
+              Read-Only Verified Statement
+            </span>
+          </div>
         </div>
       </div>
+
+      {data?.tenant.status === 'moved_out' && (
+        <div style={{
+          marginBottom: '20px',
+          padding: '14px 18px',
+          backgroundColor: 'var(--color-bg-surface-alt)',
+          border: '1px solid var(--color-border)',
+          borderRadius: 'var(--radius-md)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '12px',
+        }}>
+          <DoorOpen size={22} style={{ color: 'var(--color-danger)', flexShrink: 0 }} />
+          <div>
+            <div style={{ fontWeight: 700, fontSize: 'var(--font-size-sm)', color: 'var(--color-text-primary)' }}>
+              Accommodation Marked as Vacated
+            </div>
+            <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', marginTop: '2px' }}>
+              You have notified administration that you are leaving. Your bed is now marked vacant for other incoming residents. Past payment records remain accessible below.
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Itemized Dues Card for Current Month */}
       <Card padding="lg" style={{ marginBottom: '24px', borderLeft: `5px solid ${isPaid ? 'var(--color-success)' : 'var(--color-primary)'}` }}>
@@ -396,11 +470,13 @@ export default function TenantDashboard() {
                     </div>
                     <div style={{ fontSize: 'var(--font-size-xs)', color: '#78350F', marginTop: '2px' }}>
                       Amount: {formatCurrency(pendingPayment.amount_paise)} •{' '}
-                      {pendingPayment.notes?.includes('UTR:') ? (
-                        <span style={{ fontWeight: 600 }}>{pendingPayment.notes.split('|')[0].trim()}</span>
-                      ) : (
-                        `Submitted on ${new Date(pendingPayment.created_at).toLocaleDateString('en-IN')}`
-                      )}
+                      {(() => {
+                        const { refId, extraNotes } = extractReferenceId(pendingPayment.notes);
+                        if (refId) {
+                          return <span style={{ fontWeight: 700, backgroundColor: '#FDE68A', padding: '2px 6px', borderRadius: '4px' }}>Ref: {refId}</span>;
+                        }
+                        return extraNotes || `Submitted on ${new Date(pendingPayment.created_at).toLocaleDateString('en-IN')}`;
+                      })()}
                     </div>
                   </div>
                 </div>
@@ -549,7 +625,7 @@ export default function TenantDashboard() {
               </thead>
               <tbody>
                 {data.payments.map((p) => {
-                  const utr = p.notes?.includes('UTR:') ? p.notes.split('|')[0].replace('UTR:', '').trim() : null;
+                  const { refId, extraNotes } = extractReferenceId(p.notes);
                   return (
                     <tr key={p.id}>
                       <td style={tdStyle}>{new Date(p.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</td>
@@ -558,10 +634,19 @@ export default function TenantDashboard() {
                       </td>
                       <td style={{ ...tdStyle, textTransform: 'uppercase' }}>{p.payment_method}</td>
                       <td style={{ ...tdStyle, fontFamily: 'monospace', fontSize: 'var(--font-size-xs)' }}>
-                        {utr ? (
-                          <span style={{ backgroundColor: 'var(--color-bg-surface-alt)', padding: '3px 8px', borderRadius: '4px', border: '1px solid var(--color-border)', fontWeight: 600, color: 'var(--color-text-primary)' }}>
-                            {utr}
-                          </span>
+                        {refId ? (
+                          <div>
+                            <span style={{ backgroundColor: 'var(--color-bg-surface-alt)', padding: '3px 8px', borderRadius: '4px', border: '1px solid var(--color-border)', fontWeight: 600, color: 'var(--color-text-primary)' }}>
+                              {refId}
+                            </span>
+                            {extraNotes && (
+                              <div style={{ fontSize: '11px', color: 'var(--color-text-muted)', marginTop: '2px' }}>
+                                {extraNotes}
+                              </div>
+                            )}
+                          </div>
+                        ) : extraNotes ? (
+                          <span style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>{extraNotes}</span>
                         ) : (
                           <span style={{ color: 'var(--color-text-muted)' }}>-</span>
                         )}
@@ -793,6 +878,73 @@ export default function TenantDashboard() {
               </div>
             </form>
           </div>
+        </Modal>
+      )}
+
+      {/* Vacate / Leaving Notice Modal */}
+      {showVacateModal && (
+        <Modal
+          isOpen={showVacateModal}
+          onClose={() => setShowVacateModal(false)}
+          title="Mark as Leaving / Vacate Room"
+          size="md"
+        >
+          <form onSubmit={handleVacateSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <div style={{
+              padding: '14px 16px',
+              backgroundColor: '#FEF2F2',
+              border: '1px solid #FECACA',
+              borderRadius: 'var(--radius-md)',
+              display: 'flex',
+              gap: '12px',
+              alignItems: 'flex-start',
+            }}>
+              <AlertCircle size={20} style={{ color: '#DC2626', flexShrink: 0, marginTop: '2px' }} />
+              <div style={{ fontSize: 'var(--font-size-xs)', color: '#991B1B' }}>
+                <strong style={{ display: 'block', marginBottom: '4px' }}>Confirm Room Move-Out</strong>
+                By marking that you are leaving, your bed in <strong>Room {data?.tenant.room_number}</strong> will immediately be released and marked as <strong>vacant</strong> for other incoming residents, and the PG administration will be notified.
+              </div>
+            </div>
+
+            <FormField label="Move-Out / Leaving Date" required>
+              <Input
+                type="date"
+                value={leavingDate}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setLeavingDate(e.target.value)}
+                required
+              />
+            </FormField>
+
+            <FormField label="Reason for Leaving / Feedback (Optional)">
+              <Textarea
+                placeholder="e.g. Completed college course / relocation / personal reasons..."
+                value={leavingReason}
+                onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setLeavingReason(e.target.value)}
+                rows={3}
+              />
+            </FormField>
+
+            <div style={{
+              display: 'flex',
+              justifyContent: 'flex-end',
+              gap: '10px',
+              marginTop: '12px',
+              borderTop: '1px solid var(--color-border)',
+              paddingTop: '16px',
+            }}>
+              <Button type="button" variant="secondary" onClick={() => setShowVacateModal(false)}>
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                variant="danger"
+                isLoading={isVacating}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+              >
+                <DoorOpen size={16} /> Confirm Move-Out & Vacate Bed
+              </Button>
+            </div>
+          </form>
         </Modal>
       )}
     </div>

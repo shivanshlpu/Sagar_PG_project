@@ -1,12 +1,12 @@
 import React from 'react';
 import { ResponsiveTable, type ResponsiveColumn } from '../components/common/ResponsiveTable';
-import { Badge, getStatusBadgeVariant, Button, Modal, Select } from '../components/ui';
+import { Badge, getStatusBadgeVariant, Button, Modal, Select, FormField, Input } from '../components/ui';
 import { useToast } from '../components/ui/Toast';
 import { useAuth } from '../hooks/useAuth';
-import { apiGet, apiPatch, apiPost, formatCurrency } from '../lib/api';
+import { apiGet, apiPatch, apiPost, formatCurrency, extractReferenceId } from '../lib/api';
 import { formatDate } from '../lib/date';
 import { printElement } from '../lib/printHelper';
-import { CreditCard, Check, X, Printer, Receipt, Send } from 'lucide-react';
+import { CreditCard, Check, X, Printer, Receipt, Send, Plus } from 'lucide-react';
 
 interface Payment {
   id: string;
@@ -26,6 +26,19 @@ export default function AdminPayments() {
   const [statusFilter, setStatusFilter] = React.useState('');
   const [selectedReceipt, setSelectedReceipt] = React.useState<Payment | null>(null);
   const [isSendingWa, setIsSendingWa] = React.useState(false);
+
+  // Manual payment recording modal state
+  const [showRecordModal, setShowRecordModal] = React.useState(false);
+  const [tenantsList, setTenantsList] = React.useState<Array<{ id: string; full_name: string; phone?: string; room?: { room_number: string } }>>([]);
+  const [selectedTenantId, setSelectedTenantId] = React.useState('');
+  const [recordAmount, setRecordAmount] = React.useState('');
+  const [recordMethod, setRecordMethod] = React.useState<'UPI' | 'CASH' | 'BANK_TRANSFER'>('CASH');
+  const [recordUtr, setRecordUtr] = React.useState('');
+  const [recordNotes, setRecordNotes] = React.useState('');
+  const [pendingDuesInfo, setPendingDuesInfo] = React.useState<string | null>(null);
+  const [activeRentRecordId, setActiveRentRecordId] = React.useState<string | null>(null);
+  const [isRecording, setIsRecording] = React.useState(false);
+
   const { showToast } = useToast();
 
   React.useEffect(() => { loadPayments(); }, [statusFilter]);
@@ -38,6 +51,82 @@ export default function AdminPayments() {
     const d = res.data;
     setPayments(Array.isArray(d) ? d : (d as unknown as { data: Payment[] })?.data || []);
     setIsLoading(false);
+  }
+
+  async function openRecordModal() {
+    setShowRecordModal(true);
+    setSelectedTenantId('');
+    setRecordAmount('');
+    setRecordUtr('');
+    setRecordNotes('');
+    setPendingDuesInfo(null);
+    setActiveRentRecordId(null);
+
+    // Fetch active tenants
+    const res = await apiGet<any[]>('/tenants?status=active');
+    if (res.success && res.data) {
+      setTenantsList(Array.isArray(res.data) ? res.data : (res.data as any)?.data || []);
+    }
+  }
+
+  async function handleTenantSelect(tenantId: string) {
+    setSelectedTenantId(tenantId);
+    if (!tenantId) {
+      setPendingDuesInfo(null);
+      setRecordAmount('');
+      setActiveRentRecordId(null);
+      return;
+    }
+
+    try {
+      const res = await apiGet<any>(`/tenants/${tenantId}/billing-summary`);
+      if (res.success && res.data) {
+        const cur = res.data.currentDue;
+        if (cur && cur.total_due_paise > 0) {
+          setRecordAmount((cur.total_due_paise / 100).toString());
+          setActiveRentRecordId(cur.rent_record_id || null);
+          setPendingDuesInfo(`Active due: ${formatCurrency(cur.total_due_paise)} (${cur.status.toUpperCase()} for ${cur.month})`);
+        } else {
+          setRecordAmount('');
+          setActiveRentRecordId(null);
+          setPendingDuesInfo('No pending dues found for this tenant.');
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  async function submitRecordPayment(e: React.FormEvent) {
+    e.preventDefault();
+    if (!selectedTenantId) {
+      showToast('Please select a resident', 'error');
+      return;
+    }
+    const numAmt = Number(recordAmount);
+    if (isNaN(numAmt) || numAmt <= 0) {
+      showToast('Please enter a valid amount', 'error');
+      return;
+    }
+
+    setIsRecording(true);
+    const res = await apiPost('/payments/record', {
+      tenant_id: selectedTenantId,
+      rent_record_id: activeRentRecordId,
+      amount_paise: Math.round(numAmt * 100),
+      payment_method: recordMethod,
+      utr_id: recordUtr.trim() || undefined,
+      notes: recordNotes.trim() || undefined,
+    });
+
+    if (res.success) {
+      showToast('Payment recorded, verified, and rent marked as paid!');
+      setShowRecordModal(false);
+      loadPayments();
+    } else {
+      showToast(res.error || 'Failed to record payment', 'error');
+    }
+    setIsRecording(false);
   }
 
   async function verify(id: string, status: 'verified' | 'rejected') {
@@ -79,24 +168,32 @@ export default function AdminPayments() {
     { key: 'amount_paise', header: 'Amount', render: (r: Payment) => <span className="tabular-nums" style={{ fontWeight: 600 }}>{formatCurrency(r.amount_paise)}</span>, sortable: true },
     { key: 'payment_method', header: 'Method', render: (r: Payment) => <span style={{ textTransform: 'uppercase', fontSize: 'var(--font-size-xs)', fontWeight: 500 }}>{r.payment_method}</span> },
     { key: 'notes', header: 'UTR / Ref ID', render: (r: Payment) => {
-      const utrMatch = r.notes?.match(/UTR:\s*([^|\n]+)/i);
-      const utr = utrMatch ? utrMatch[1].trim() : (r.notes?.startsWith('UTR:') ? r.notes.replace('UTR:', '').trim() : null);
-      if (utr) {
-        return (
-          <code style={{
-            fontSize: 'var(--font-size-xs)',
-            fontWeight: 700,
-            padding: '2px 8px',
-            backgroundColor: 'var(--color-bg-surface-alt)',
-            borderRadius: '4px',
-            border: '1px solid var(--color-border)',
-            color: 'var(--color-primary)',
-          }}>
-            {utr}
-          </code>
-        );
-      }
-      return <span style={{ color: 'var(--color-text-muted)', fontSize: 'var(--font-size-xs)' }}>{r.notes || '-'}</span>;
+      const { refId, extraNotes } = extractReferenceId(r.notes);
+      return (
+        <div>
+          {refId ? (
+            <code style={{
+              fontSize: 'var(--font-size-xs)',
+              fontWeight: 700,
+              padding: '2px 8px',
+              backgroundColor: 'var(--color-bg-surface-alt)',
+              borderRadius: '4px',
+              border: '1px solid var(--color-border)',
+              color: 'var(--color-primary)',
+              display: 'inline-block',
+            }}>
+              {refId}
+            </code>
+          ) : null}
+          {extraNotes ? (
+            <div style={{ fontSize: '11px', color: 'var(--color-text-secondary)', marginTop: refId ? '2px' : 0 }}>
+              {extraNotes}
+            </div>
+          ) : !refId ? (
+            <span style={{ color: 'var(--color-text-muted)', fontSize: 'var(--font-size-xs)' }}>-</span>
+          ) : null}
+        </div>
+      );
     }},
     { key: 'status', header: 'Status', render: (r: Payment) => <Badge variant={getStatusBadgeVariant(r.status)}>{r.status}</Badge> },
   ];
@@ -110,6 +207,7 @@ export default function AdminPayments() {
             Immutable ledger of resident payments and receipts
           </p>
         </div>
+        <Button onClick={openRecordModal}><Plus size={16} /> Record Payment</Button>
       </div>
 
       <div style={{ marginBottom: '16px' }}>
@@ -152,9 +250,23 @@ export default function AdminPayments() {
                   <span style={{ fontSize: '11px', color: 'var(--color-text-muted)', textTransform: 'uppercase', display: 'block', fontWeight: 600 }}>
                     Payment Reference / UTR
                   </span>
-                  <code style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-primary)' }}>
-                    {payment.notes}
-                  </code>
+                  {(() => {
+                    const { refId, extraNotes } = extractReferenceId(payment.notes);
+                    return (
+                      <div>
+                        {refId && (
+                          <code style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-primary)', display: 'block' }}>
+                            {refId}
+                          </code>
+                        )}
+                        {extraNotes && (
+                          <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', marginTop: refId ? '2px' : 0 }}>
+                            {extraNotes}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </div>
               )}
               {payment.rejection_reason && (
@@ -340,6 +452,97 @@ export default function AdminPayments() {
               This is an immutable digital receipt recorded by {pg?.name || pgName || 'PG Management'}. All dates are in DD/MM/YYYY format.
             </div>
           </div>
+        </Modal>
+      )}
+
+      {/* Record Payment Modal */}
+      {showRecordModal && (
+        <Modal
+          isOpen={showRecordModal}
+          onClose={() => setShowRecordModal(false)}
+          title="Record Direct Resident Payment"
+          size="md"
+        >
+          <form onSubmit={submitRecordPayment} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <FormField label="Select Resident" required>
+              <Select
+                options={[
+                  { value: '', label: '-- Select Resident --' },
+                  ...tenantsList.map((t) => ({
+                    value: t.id,
+                    label: `${t.full_name}${t.room?.room_number ? ` (Room ${t.room.room_number})` : ''}`,
+                  })),
+                ]}
+                value={selectedTenantId}
+                onChange={(e: React.ChangeEvent<HTMLSelectElement>) => handleTenantSelect(e.target.value)}
+                required
+              />
+            </FormField>
+
+            {pendingDuesInfo && (
+              <div style={{
+                padding: '10px 14px',
+                borderRadius: 'var(--radius-md)',
+                backgroundColor: 'var(--color-primary-light)',
+                border: '1px solid var(--color-border)',
+                fontSize: 'var(--font-size-xs)',
+                fontWeight: 600,
+                color: 'var(--color-primary)',
+              }}>
+                {pendingDuesInfo}
+              </div>
+            )}
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+              <FormField label="Amount Paid (₹)" required>
+                <Input
+                  type="number"
+                  step="any"
+                  placeholder="e.g. 9000"
+                  value={recordAmount}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRecordAmount(e.target.value)}
+                  required
+                />
+              </FormField>
+
+              <FormField label="Payment Method" required>
+                <Select
+                  options={[
+                    { value: 'CASH', label: 'Cash' },
+                    { value: 'UPI', label: 'UPI' },
+                    { value: 'BANK_TRANSFER', label: 'Bank Transfer' },
+                  ]}
+                  value={recordMethod}
+                  onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setRecordMethod(e.target.value as any)}
+                />
+              </FormField>
+            </div>
+
+            <FormField label="UTR / Reference ID (Optional)">
+              <Input
+                placeholder="e.g. 625519827391 or UPI/..."
+                value={recordUtr}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRecordUtr(e.target.value)}
+              />
+            </FormField>
+
+            <FormField label="Notes / Comments (Optional)">
+              <Input
+                placeholder="e.g. September rent paid directly"
+                value={recordNotes}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRecordNotes(e.target.value)}
+              />
+            </FormField>
+
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '12px', borderTop: '1px solid var(--color-border)', paddingTop: '16px' }}>
+              <Button type="button" variant="secondary" onClick={() => setShowRecordModal(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" isLoading={isRecording}>
+                Confirm & Record Payment
+              </Button>
+            </div>
+          </form>
         </Modal>
       )}
     </div>

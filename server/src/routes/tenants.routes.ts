@@ -72,6 +72,41 @@ router.delete('/:id', authenticate, requirePg, authorize('admin'), async (req: R
   }
 });
 
+// POST /tenants/vacate [Tenant self-marking as leaving or Admin specifying tenant]
+router.post('/vacate', authenticate, requirePg, async (req: Request, res: Response) => {
+  try {
+    const tenantId = req.user!.role === 'tenant' ? req.user!.tenantId : req.body.tenant_id;
+    if (!tenantId) {
+      res.status(400).json({ success: false, error: 'Tenant ID is required' });
+      return;
+    }
+    const data = await tenantsService.vacateTenant(
+      req.user!.pgId,
+      tenantId,
+      req.body,
+      { id: req.user!.id, email: req.user!.email }
+    );
+    res.json({ success: true, message: 'Vacated successfully', data });
+  } catch (err) {
+    res.status(400).json({ success: false, error: (err as Error).message });
+  }
+});
+
+// POST /tenants/:id/vacate [Admin or Tenant self]
+router.post('/:id/vacate', authenticate, requirePg, tenantSelfOnly, async (req: Request, res: Response) => {
+  try {
+    const data = await tenantsService.vacateTenant(
+      req.user!.pgId,
+      req.params.id,
+      req.body,
+      { id: req.user!.id, email: req.user!.email }
+    );
+    res.json({ success: true, message: 'Vacated successfully', data });
+  } catch (err) {
+    res.status(400).json({ success: false, error: (err as Error).message });
+  }
+});
+
 // POST /tenants/self-onboarding [Authenticated tenant completing their onboarding]
 router.post(
   '/self-onboarding',

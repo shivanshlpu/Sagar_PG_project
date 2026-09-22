@@ -318,7 +318,7 @@ export async function updateTenant(
     if (existing.bed_id) {
       await supabaseAdmin
         .from('beds')
-        .update({ status: 'available', tenant_id: null, updated_at: new Date().toISOString() })
+        .update({ status: 'vacant', tenant_id: null, updated_at: new Date().toISOString() })
         .eq('id', existing.bed_id)
         .eq('pg_id', pgId);
     }
@@ -904,6 +904,132 @@ async function ensureDocumentsBucket() {
       console.warn('[Notification] Failed to alert admin of tenant onboarding:', e.message);
     }
   })();
+
+  return parseTenantMetadata(updatedTenant);
+}
+
+export async function vacateTenant(
+  pgId: string,
+  tenantId: string,
+  options: { leaving_date?: string; reason?: string },
+  actor: { id: string; email: string }
+) {
+  // 1. Fetch current tenant with room and bed details
+  const { data: tenant, error: fetchErr } = await supabaseAdmin
+    .from('tenants')
+    .select('*, room:rooms!room_id(id, room_number, total_beds), bed:beds!bed_id(id, bed_number)')
+    .eq('id', tenantId)
+    .eq('pg_id', pgId)
+    .single();
+
+  if (fetchErr || !tenant) {
+    throw new Error('Tenant record not found in your PG');
+  }
+
+  const leavingDate = options.leaving_date || new Date().toISOString().slice(0, 10);
+  const leavingReason = options.reason?.trim() || 'Marked as leaving / vacated room';
+
+  // 2. Parse existing notes/metadata and update leaving info
+  let meta: any = {};
+  if (tenant.notes) {
+    try {
+      meta = JSON.parse(tenant.notes);
+    } catch {
+      meta = { custom_notes: tenant.notes };
+    }
+  }
+  meta.vacated_reason = leavingReason;
+  meta.vacated_at = new Date().toISOString();
+  meta.vacated_by = actor.email;
+
+  // 3. Update tenant record: status to 'moved_out', set move_out_date, unassign bed & room
+  const oldBedId = tenant.bed_id;
+  const oldRoomId = tenant.room_id;
+  const roomNumber = (tenant.room as any)?.room_number || 'Unassigned';
+  const bedNumber = (tenant.bed as any)?.bed_number || 'Unassigned';
+
+  const { data: updatedTenant, error: updateErr } = await supabaseAdmin
+    .from('tenants')
+    .update({
+      status: 'moved_out',
+      move_out_date: leavingDate,
+      bed_id: null,
+      room_id: null,
+      notes: JSON.stringify(meta),
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', tenantId)
+    .eq('pg_id', pgId)
+    .select()
+    .single();
+
+  if (updateErr) throw new Error(updateErr.message);
+
+  // 4. Immediately mark the bed as VACANT and free
+  if (oldBedId) {
+    await supabaseAdmin
+      .from('beds')
+      .update({
+        status: 'vacant',
+        tenant_id: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', oldBedId)
+      .eq('pg_id', pgId);
+  }
+
+  // 5. Recalculate room occupancy and mark room available
+  if (oldRoomId) {
+    const { data: occBeds } = await supabaseAdmin
+      .from('beds')
+      .select('id')
+      .eq('room_id', oldRoomId)
+      .eq('pg_id', pgId)
+      .eq('status', 'occupied');
+
+    const occCount = occBeds?.length || 0;
+    const totalBeds = (tenant.room as any)?.total_beds || 0;
+
+    await supabaseAdmin
+      .from('rooms')
+      .update({
+        occupied_beds: occCount,
+        status: occCount >= totalBeds ? 'full' : 'available',
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', oldRoomId)
+      .eq('pg_id', pgId);
+  }
+
+  // 6. Notify admin that tenant has left and bed is vacant
+  try {
+    await supabaseAdmin.from('notifications').insert({
+      user_id: null, // Broadcast to admin
+      title: `Tenant Vacated: ${tenant.full_name}`,
+      message: `${tenant.full_name} has marked that they are leaving Room ${roomNumber} (Bed ${bedNumber}). The bed is now vacant and available for new bookings.`,
+      type: 'tenant_vacated',
+      is_read: false,
+    });
+  } catch (notifErr: any) {
+    console.warn('[Tenants] Notification creation warning:', notifErr?.message);
+  }
+
+  // 7. Audit log
+  await logAudit({
+    pgId,
+    actorId: actor.id,
+    actorEmail: actor.email,
+    action: 'TENANT_VACATED',
+    entityType: 'tenant',
+    entityId: tenantId,
+    details: {
+      tenant_name: tenant.full_name,
+      room_number: roomNumber,
+      bed_number: bedNumber,
+      leaving_date: leavingDate,
+      reason: leavingReason,
+    },
+  });
 
   return parseTenantMetadata(updatedTenant);
 }

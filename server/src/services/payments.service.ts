@@ -139,6 +139,30 @@ export async function verifyPayment(
         .update({ status: 'paid', paid_date: new Date().toISOString(), updated_at: new Date().toISOString() })
         .eq('id', payment.rent_record_id)
         .eq('pg_id', pgId);
+    } else if (payment.tenant_id) {
+      // Find latest pending/overdue rent record for this tenant and mark it paid
+      const { data: latestPending } = await supabaseAdmin
+        .from('rent_records')
+        .select('id')
+        .eq('pg_id', pgId)
+        .eq('tenant_id', payment.tenant_id)
+        .in('status', ['pending', 'overdue'])
+        .order('month', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (latestPending) {
+        await supabaseAdmin
+          .from('rent_records')
+          .update({ status: 'paid', paid_date: new Date().toISOString(), updated_at: new Date().toISOString() })
+          .eq('id', latestPending.id)
+          .eq('pg_id', pgId);
+
+        await supabaseAdmin
+          .from('payments')
+          .update({ rent_record_id: latestPending.id })
+          .eq('id', id);
+      }
     }
     if (payment.electricity_bill_id) {
       await supabaseAdmin

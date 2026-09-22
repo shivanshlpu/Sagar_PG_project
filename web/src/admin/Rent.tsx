@@ -22,11 +22,12 @@ interface RentRecord {
 
 export default function AdminRent() {
   const { pg, pgName } = useAuth();
+  const currentMonthStr = new Date().toISOString().slice(0, 7);
   const [records, setRecords] = React.useState<RentRecord[]>([]);
   const [isLoading, setIsLoading] = React.useState(true);
   const [showGenerate, setShowGenerate] = React.useState(false);
-  const [month, setMonth] = React.useState(new Date().toISOString().slice(0, 7));
-  const [monthFilter, setMonthFilter] = React.useState('');
+  const [month, setMonth] = React.useState(currentMonthStr);
+  const [monthFilter, setMonthFilter] = React.useState(currentMonthStr);
   const [statusFilter, setStatusFilter] = React.useState('');
   const [selectedBill, setSelectedBill] = React.useState<RentRecord | null>(null);
   const [isSendingWa, setIsSendingWa] = React.useState(false);
@@ -107,15 +108,37 @@ export default function AdminRent() {
         <Button onClick={() => setShowGenerate(true)}><Plus size={16} /> Generate Rent</Button>
       </div>
 
-      <div style={{ display: 'flex', gap: '12px', marginBottom: '16px', flexWrap: 'wrap' }}>
-        <Input type="month" value={monthFilter} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setMonthFilter(e.target.value)} style={{ maxWidth: '200px' }} />
-        <Select options={[
-          { value: '', label: 'All Statuses' },
-          { value: 'pending', label: 'Pending' },
-          { value: 'paid', label: 'Paid' },
-          { value: 'overdue', label: 'Overdue' },
-          { value: 'waived', label: 'Waived' },
-        ]} value={statusFilter} onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setStatusFilter(e.target.value)} style={{ maxWidth: '180px' }} />
+      <div style={{ display: 'flex', gap: '12px', marginBottom: '16px', flexWrap: 'wrap', alignItems: 'center' }}>
+        <Input
+          type="month"
+          value={monthFilter}
+          onChange={(e: React.ChangeEvent<HTMLInputElement>) => setMonthFilter(e.target.value)}
+          style={{ maxWidth: '200px' }}
+        />
+        <Button
+          size="sm"
+          variant={monthFilter ? 'secondary' : 'primary'}
+          onClick={() => setMonthFilter(monthFilter ? '' : currentMonthStr)}
+        >
+          {monthFilter ? 'Show All Months' : 'Show Current Month'}
+        </Button>
+        <Select
+          options={[
+            { value: '', label: 'All Statuses' },
+            { value: 'pending', label: 'Pending' },
+            { value: 'paid', label: 'Paid' },
+            { value: 'overdue', label: 'Overdue' },
+            { value: 'waived', label: 'Waived' },
+          ]}
+          value={statusFilter}
+          onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setStatusFilter(e.target.value)}
+          style={{ maxWidth: '180px' }}
+        />
+        {monthFilter && (
+          <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', marginLeft: 'auto' }}>
+            Viewing: <strong style={{ color: 'var(--color-primary)' }}>{formatMonth(monthFilter)}</strong> ({records.length} records)
+          </span>
+        )}
       </div>
 
       <ResponsiveTable<RentRecord>

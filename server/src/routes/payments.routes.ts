@@ -1,5 +1,7 @@
 import { Router, Request, Response } from 'express';
 import multer from 'multer';
+import { supabaseAdmin } from '../config/supabase';
+import { logAudit } from '../services/auditLog.service';
 import * as paymentsService from '../services/payments.service';
 import { authenticate, authorize, requirePg } from '../middleware/auth';
 import { validate } from '../middleware/validate';
@@ -10,6 +12,100 @@ const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
 
 router.use(authenticate, requirePg);
+
+// POST /payments/record [Admin only - manually record payment]
+router.post('/record', authorize('admin'), async (req: Request, res: Response) => {
+  try {
+    const { tenant_id, rent_record_id, electricity_bill_id, amount_paise, payment_method, utr_id, notes } = req.body;
+    if (!tenant_id || !amount_paise) {
+      res.status(400).json({ success: false, error: 'Tenant ID and amount are required' });
+      return;
+    }
+
+    const noteParts = [];
+    if (utr_id) noteParts.push(`UTR: ${utr_id}`);
+    if (notes) noteParts.push(notes);
+    noteParts.push(`Direct entry by Admin (${req.user!.email})`);
+    const noteText = noteParts.join(' | ');
+
+    // 1. Insert verified payment
+    const { data: payment, error } = await supabaseAdmin
+      .from('payments')
+      .insert({
+        pg_id: req.user!.pgId,
+        tenant_id,
+        rent_record_id: rent_record_id || null,
+        electricity_bill_id: electricity_bill_id || null,
+        amount_paise: Number(amount_paise),
+        payment_method: payment_method || 'CASH',
+        notes: noteText || null,
+        status: 'verified',
+        verified_by: req.user!.id,
+        verified_at: new Date().toISOString(),
+      })
+      .select('*, tenant:tenants(full_name, phone, email)')
+      .single();
+
+    if (error) throw new Error(error.message);
+
+    // 2. Mark linked rent record as paid
+    if (rent_record_id) {
+      await supabaseAdmin
+        .from('rent_records')
+        .update({ status: 'paid', paid_date: new Date().toISOString(), updated_at: new Date().toISOString() })
+        .eq('id', rent_record_id)
+        .eq('pg_id', req.user!.pgId);
+    } else {
+      // Find latest pending rent record for tenant
+      const { data: pendingRent } = await supabaseAdmin
+        .from('rent_records')
+        .select('id')
+        .eq('pg_id', req.user!.pgId)
+        .eq('tenant_id', tenant_id)
+        .in('status', ['pending', 'overdue'])
+        .order('month', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (pendingRent) {
+        await supabaseAdmin
+          .from('rent_records')
+          .update({ status: 'paid', paid_date: new Date().toISOString(), updated_at: new Date().toISOString() })
+          .eq('id', pendingRent.id)
+          .eq('pg_id', req.user!.pgId);
+
+        await supabaseAdmin
+          .from('payments')
+          .update({ rent_record_id: pendingRent.id })
+          .eq('id', payment.id);
+      }
+    }
+
+    // 3. Mark linked electricity bill as paid if provided
+    if (electricity_bill_id) {
+      await supabaseAdmin
+        .from('electricity_bills')
+        .update({ status: 'paid', updated_at: new Date().toISOString() })
+        .eq('id', electricity_bill_id)
+        .eq('pg_id', req.user!.pgId);
+    }
+
+    // 4. Audit log
+    await logAudit({
+      pgId: req.user!.pgId,
+      actorId: req.user!.id,
+      actorEmail: req.user!.email,
+      action: 'RECORD_PAYMENT',
+      entityType: 'payment',
+      entityId: payment.id,
+      details: { tenant_id, amount_paise, payment_method },
+    });
+
+    res.status(201).json({ success: true, data: payment });
+  } catch (err) {
+    res.status(400).json({ success: false, error: (err as Error).message });
+  }
+});
 
 // GET /payments [Admin or Tenant]
 router.get('/', async (req: Request, res: Response) => {

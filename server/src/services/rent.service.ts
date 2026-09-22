@@ -4,6 +4,100 @@ import { getBillingSettings } from './settings.service';
 import { sendWhatsAppMessage, decodeBase64Image } from './whatsapp.service';
 import { formatDateDMY, formatMonthMY } from '../utils/date';
 
+export async function ensureCurrentMonthRent(pgId: string, targetMonth?: string) {
+  const month = targetMonth || new Date().toISOString().slice(0, 7);
+  try {
+    const billingSettings = await getBillingSettings(pgId);
+
+    // Get active tenants in this PG with room assignments
+    const { data: tenants, error: tenantErr } = await supabaseAdmin
+      .from('tenants')
+      .select('id, room_id, bed_id, rooms(base_rent_paise)')
+      .eq('pg_id', pgId)
+      .eq('status', 'active')
+      .not('room_id', 'is', null);
+
+    if (tenantErr || !tenants || tenants.length === 0) return [];
+
+    // Check which tenants already have a record for this month
+    const { data: existingRecords } = await supabaseAdmin
+      .from('rent_records')
+      .select('tenant_id')
+      .eq('pg_id', pgId)
+      .eq('month', month)
+      .in('tenant_id', tenants.map((t) => t.id));
+
+    const existingTenantIds = new Set(existingRecords?.map((r) => r.tenant_id) || []);
+    const missingTenants = tenants.filter((t) => !existingTenantIds.has(t.id));
+
+    if (missingTenants.length === 0) return [];
+
+    // Fetch electricity bills for this month if any
+    const { data: existingElBills } = await supabaseAdmin
+      .from('electricity_bills')
+      .select('id, tenant_id, units_consumed, rate_per_unit_paise, total_amount_paise')
+      .eq('pg_id', pgId)
+      .eq('month', month)
+      .in('tenant_id', missingTenants.map((t) => t.id));
+
+    const elBillMap = new Map<string, any>();
+    if (existingElBills) {
+      for (const b of existingElBills) {
+        elBillMap.set(b.tenant_id, b);
+      }
+    }
+
+    const records = missingTenants.map((tenant) => {
+      const tenantData = tenant as any;
+      const baseRent = Array.isArray(tenantData.rooms)
+        ? (tenantData.rooms[0]?.base_rent_paise || 0)
+        : (tenantData.rooms?.base_rent_paise || 0);
+
+      const maintenance = billingSettings.maintenance_charge_paise || 0;
+      const elBill = elBillMap.get(tenant.id);
+      const elAmount = elBill?.total_amount_paise || 0;
+      const totalDue = baseRent + maintenance + elAmount;
+
+      const itemizedNotes = JSON.stringify({
+        base_rent_paise: baseRent,
+        maintenance_paise: maintenance,
+        electricity_bill_id: elBill?.id || null,
+        electricity_units: elBill?.units_consumed || 0,
+        electricity_rate_per_unit_paise: elBill?.rate_per_unit_paise || billingSettings.electricity_rate_per_unit_paise,
+        electricity_amount_paise: elAmount,
+        total_due_paise: totalDue,
+      });
+
+      return {
+        pg_id: pgId,
+        tenant_id: tenant.id,
+        room_id: tenant.room_id,
+        month,
+        rent_amount_paise: baseRent,
+        late_fee_paise: 0,
+        total_due_paise: totalDue,
+        status: 'pending',
+        due_date: `${month}-05T00:00:00Z`,
+        notes: itemizedNotes,
+      };
+    });
+
+    const { data: inserted, error: insertError } = await supabaseAdmin
+      .from('rent_records')
+      .insert(records)
+      .select();
+
+    if (insertError) {
+      console.warn('[RentService] Auto-generation notice:', insertError.message);
+      return [];
+    }
+    return inserted || [];
+  } catch (err: any) {
+    console.warn('[RentService] Failed in ensureCurrentMonthRent:', err?.message);
+    return [];
+  }
+}
+
 export async function listRentRecords(
   pgId: string,
   filters?: {
@@ -15,6 +109,10 @@ export async function listRentRecords(
     limit?: number;
   }
 ) {
+  // Automatically ensure current month rent records exist for all active tenants
+  const currentMonth = new Date().toISOString().slice(0, 7);
+  await ensureCurrentMonthRent(pgId, filters?.month || currentMonth);
+
   const page = filters?.page || 1;
   const limit = filters?.limit || 20;
   const offset = (page - 1) * limit;
@@ -203,6 +301,31 @@ export async function updateRentRecord(
 
   if (updates.status === 'paid') {
     updateData.paid_date = new Date().toISOString();
+    // Check if a payment record already exists for this rent record
+    try {
+      const { data: existingPayment } = await supabaseAdmin
+        .from('payments')
+        .select('id')
+        .eq('pg_id', pgId)
+        .eq('rent_record_id', id)
+        .maybeSingle();
+
+      if (!existingPayment) {
+        await supabaseAdmin.from('payments').insert({
+          pg_id: pgId,
+          tenant_id: existing.tenant_id,
+          rent_record_id: id,
+          amount_paise: updateData.total_due_paise ?? existing.total_due_paise,
+          payment_method: 'CASH', // default when marked directly paid by admin
+          notes: `Marked paid by admin (${actor.email}) for month ${existing.month}`,
+          status: 'verified',
+          verified_by: actor.id,
+          verified_at: new Date().toISOString(),
+        });
+      }
+    } catch (payErr: any) {
+      console.warn('[RentService] Auto-create payment entry notice:', payErr?.message);
+    }
   }
 
   const { data, error } = await supabaseAdmin
@@ -241,6 +364,9 @@ export async function getTenantRentHistory(pgId: string, tenantId: string) {
 }
 
 export async function getTenantBillingSummary(pgId: string, tenantId: string) {
+  // Ensure ongoing month rent record is created for this PG
+  await ensureCurrentMonthRent(pgId);
+
   // 1. Fetch tenant with room
   const { data: tenant, error: tenantError } = await supabaseAdmin
     .from('tenants')
