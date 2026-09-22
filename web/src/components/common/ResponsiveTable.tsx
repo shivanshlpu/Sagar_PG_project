@@ -172,11 +172,6 @@ export function ResponsiveTable<T extends Record<string, any>>({
               }}
             >
               {renderCard(item)}
-              {actions && (
-                <div style={{ marginTop: '12px', borderTop: '1px solid var(--color-border)', paddingTop: '8px' }}>
-                  {actions(item)}
-                </div>
-              )}
             </div>
           ) : (
             <div

@@ -3,7 +3,7 @@ import { cache } from '../config/redis';
 import { sendWhatsAppMessage, getWhatsAppStatus } from './whatsapp.service';
 import { createNotification } from './notifications.service';
 import { getReminderSettings } from './settings.service';
-import { formatDateDMY } from '../utils/date';
+import { formatDateDMY, formatMonthMY } from '../utils/date';
 
 /**
  * Check for overdue or due rent records and dispatch daily reminders via WhatsApp and in-app.
@@ -107,11 +107,12 @@ export async function checkAndSendRentReminders(targetPgId?: string): Promise<{
 
       const formattedAmount = (record.total_due_paise / 100).toLocaleString('en-IN');
       const dueDateFormatted = formatDateDMY(record.due_date);
+      const monthFormatted = formatMonthMY(record.month);
 
       const reminderMessage =
         `🔔 *${pg.name} — Rent Payment Reminder*\n\n` +
         `Dear *${tenant.full_name}*,\n\n` +
-        `This is a friendly reminder that your rent for *${record.month}* is due.\n\n` +
+        `This is a friendly reminder that your rent for *${monthFormatted}* is due.\n\n` +
         `💰 *Amount Due*: ₹${formattedAmount}\n` +
         `📅 *Due Date*: ${dueDateFormatted}\n` +
         `🏠 *Room*: ${room?.room_number || 'Assigned Room'}\n\n` +
@@ -125,7 +126,7 @@ export async function checkAndSendRentReminders(targetPgId?: string): Promise<{
         try {
           if (waStatus.status === 'connected') {
             await sendWhatsAppMessage(tenantPhone, reminderMessage);
-            console.log(`[Reminders] WhatsApp reminder sent to ${tenant.full_name} (${tenantPhone}) for ${record.month}`);
+            console.log(`[Reminders] WhatsApp reminder sent to ${tenant.full_name} (${tenantPhone}) for ${monthFormatted}`);
           }
 
           // In-app notification for the tenant
@@ -133,7 +134,7 @@ export async function checkAndSendRentReminders(targetPgId?: string): Promise<{
             await createNotification({
               userId: tenant.user_id,
               title: 'Rent Payment Due',
-              message: `Your rent of ₹${formattedAmount} for ${record.month} is pending. Please pay to avoid late fees.`,
+              message: `Your rent of ₹${formattedAmount} for ${monthFormatted} is pending. Please complete the payment.`,
               type: 'rent_reminder',
               metadata: { rentRecordId: record.id, month: record.month, totalDuePaise: record.total_due_paise },
             }).catch(() => {});

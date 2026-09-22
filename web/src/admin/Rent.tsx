@@ -90,7 +90,6 @@ export default function AdminRent() {
     )},
     { key: 'room', header: 'Room', render: (r: RentRecord) => r.room?.room_number ? `Room ${r.room.room_number}` : '-' },
     { key: 'rent_amount_paise', header: 'Rent', render: (r: RentRecord) => <span className="tabular-nums">{formatCurrency(r.rent_amount_paise)}</span> },
-    { key: 'late_fee_paise', header: 'Late Fee', render: (r: RentRecord) => r.late_fee_paise > 0 ? <span className="tabular-nums">{formatCurrency(r.late_fee_paise)}</span> : '-' },
     { key: 'total_due_paise', header: 'Total Due', render: (r: RentRecord) => <span className="tabular-nums" style={{ fontWeight: 600 }}>{formatCurrency(r.total_due_paise)}</span>, sortable: true },
     { key: 'due_date', header: 'Due Date', render: (r: RentRecord) => formatDate(r.due_date) },
     { key: 'status', header: 'Status', render: (r: RentRecord) => <Badge variant={getStatusBadgeVariant(r.status)}>{r.status}</Badge> },
@@ -137,8 +136,8 @@ export default function AdminRent() {
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', margin: '12px 0', fontSize: 'var(--font-size-sm)' }}>
               <div>
-                <span style={{ color: 'var(--color-text-secondary)', display: 'block', fontSize: 'var(--font-size-xs)' }}>Rent + Late Fee</span>
-                <span className="tabular-nums">{formatCurrency(record.rent_amount_paise)} {record.late_fee_paise > 0 ? `+ ${formatCurrency(record.late_fee_paise)}` : ''}</span>
+                <span style={{ color: 'var(--color-text-secondary)', display: 'block', fontSize: 'var(--font-size-xs)' }}>Room Rent</span>
+                <span className="tabular-nums">{formatCurrency(record.rent_amount_paise)}</span>
               </div>
               <div>
                 <span style={{ color: 'var(--color-text-secondary)', display: 'block', fontSize: 'var(--font-size-xs)' }}>Total Due</span>
@@ -307,17 +306,6 @@ export default function AdminRent() {
                     {formatCurrency(selectedBill.rent_amount_paise)}
                   </td>
                 </tr>
-                {selectedBill.late_fee_paise > 0 && (
-                  <tr style={{ borderBottom: '1px solid var(--color-border)' }}>
-                    <td style={{ padding: '12px' }}>
-                      <div style={{ fontWeight: 500, color: 'var(--color-danger)' }}>Late Payment Fee</div>
-                      <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>Applied for overdue payment</div>
-                    </td>
-                    <td style={{ padding: '12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: 'var(--color-danger)' }}>
-                      {formatCurrency(selectedBill.late_fee_paise)}
-                    </td>
-                  </tr>
-                )}
               </tbody>
               <tfoot>
                 <tr>

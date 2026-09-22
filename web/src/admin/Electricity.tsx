@@ -27,7 +27,7 @@ const billSchema = z.object({
   month: z.string().min(1, 'Month is required'),
   previous_reading: z.coerce.number().min(0),
   current_reading: z.coerce.number().min(0),
-  rate_per_unit_paise: z.coerce.number().int().min(0),
+  rate_per_unit: z.coerce.number().min(0, 'Rate per unit is required'),
 });
 
 type BillForm = z.infer<typeof billSchema>;
@@ -48,10 +48,10 @@ export default function AdminElectricity() {
   const watchedTenantId = watch('tenant_id');
   const watchedPrevReading = watch('previous_reading') || 0;
   const watchedCurrReading = watch('current_reading') || 0;
-  const watchedRatePaise = watch('rate_per_unit_paise') || defaultRatePaise;
+  const watchedRateRupees = watch('rate_per_unit') !== undefined ? Number(watch('rate_per_unit')) : (defaultRatePaise / 100);
 
   const unitsConsumed = Math.max(0, watchedCurrReading - watchedPrevReading);
-  const calculatedCostPaise = unitsConsumed * watchedRatePaise;
+  const calculatedCostPaise = Math.round(unitsConsumed * (watchedRateRupees * 100));
 
   React.useEffect(() => {
     loadBills();
@@ -95,16 +95,26 @@ export default function AdminElectricity() {
 
   function openCreateModal() {
     reset({
+      tenant_id: '',
+      room_id: '',
       month: new Date().toISOString().slice(0, 7),
       previous_reading: 0,
       current_reading: 0,
-      rate_per_unit_paise: defaultRatePaise,
+      rate_per_unit: defaultRatePaise / 100,
     });
     setShowModal(true);
   }
 
   async function onSubmit(data: BillForm) {
-    const res = await apiPost('/electricity/bills', data);
+    const payload = {
+      tenant_id: data.tenant_id,
+      room_id: data.room_id,
+      month: data.month,
+      previous_reading: data.previous_reading,
+      current_reading: data.current_reading,
+      rate_per_unit_paise: Math.round(Number(data.rate_per_unit) * 100),
+    };
+    const res = await apiPost('/electricity/bills', payload);
     if (res.success) {
       showToast('Electricity bill recorded & synchronized with rent record');
       setShowModal(false);
@@ -303,12 +313,18 @@ export default function AdminElectricity() {
         </div>
 
         <FormField
-          label="Rate per Unit (paise)"
-          error={errors.rate_per_unit_paise?.message}
+          label="Rate per Unit (₹)"
+          error={errors.rate_per_unit?.message}
           required
-          hint={`Pre-configured default: ${defaultRatePaise} paise (₹${(defaultRatePaise / 100).toFixed(2)}/unit)`}
+          hint={`Pre-configured default: ₹${(defaultRatePaise / 100).toFixed(2)}/unit`}
         >
-          <Input type="number" error={!!errors.rate_per_unit_paise} {...register('rate_per_unit_paise')} />
+          <Input
+            type="number"
+            step="0.5"
+            error={!!errors.rate_per_unit}
+            {...register('rate_per_unit')}
+            placeholder="e.g. 12"
+          />
         </FormField>
 
         {/* Live Calculation Preview Card */}

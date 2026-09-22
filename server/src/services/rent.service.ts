@@ -2,7 +2,7 @@ import { supabaseAdmin } from '../config/supabase';
 import { logAudit } from './auditLog.service';
 import { getBillingSettings } from './settings.service';
 import { sendWhatsAppMessage } from './whatsapp.service';
-import { formatDateDMY } from '../utils/date';
+import { formatDateDMY, formatMonthMY } from '../utils/date';
 
 export async function listRentRecords(
   pgId: string,
@@ -385,14 +385,14 @@ export async function sendRentBillWhatsApp(pgId: string, rentRecordId: string) {
     `📋 *RENT INVOICE — ${pgName.toUpperCase()}*\n` +
     `━━━━━━━━━━━━━━━━━━━━\n` +
     `Invoice: *${invoiceNo}*\n` +
-    `Month: *${record.month}*\n` +
+    `Month: *${formatMonthMY(record.month)}*\n` +
     `Tenant: *${tenantName}*\n` +
     `Room: *${roomNumber}*\n\n` +
     `💵 *Total Due: ${totalAmount}*\n` +
     `Due Date: *${dueDateFormatted}*\n` +
     `Status: *${record.status.toUpperCase()}*\n` +
     `━━━━━━━━━━━━━━━━━━━━\n` +
-    `Please pay before ${dueDateFormatted} to avoid late fees.\n` +
+    `Please complete the payment on or before *${dueDateFormatted}*.\n` +
     `UPI payments can be submitted in your tenant portal.`;
 
   await sendWhatsAppMessage(record.tenant.phone, invoiceMsg);

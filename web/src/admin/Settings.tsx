@@ -959,31 +959,6 @@ export default function AdminSettings() {
             />
           </FormField>
 
-          <FormField label="Late Fee Grace Period (Days)" hint="Days after due date before late fee applies">
-            <Input
-              type="number"
-              min={0}
-              max={30}
-              value={reminders.late_fee_grace_days}
-              onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
-                const val = e.target.value;
-                setReminders((prev) => ({ ...prev, late_fee_grace_days: val }));
-              }}
-            />
-          </FormField>
-
-          <FormField label="Late Fee Amount (in paise)" hint="e.g. 50000 paise = Rs. 500">
-            <Input
-              type="number"
-              min={0}
-              value={reminders.late_fee_paise}
-              onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
-                const val = e.target.value;
-                setReminders((prev) => ({ ...prev, late_fee_paise: val }));
-              }}
-            />
-          </FormField>
-
           <div style={{ marginTop: '24px' }}>
             <Button onClick={handleSaveReminders}>Save Reminder Settings</Button>
           </div>
