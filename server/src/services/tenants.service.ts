@@ -22,6 +22,7 @@ function parseTenantMetadata(tenant: any) {
     id_proof_type: tenant.id_proof_type || parsedNotes?.id_proof_type || null,
     id_proof_number: tenant.id_proof_number || parsedNotes?.id_proof_number || null,
     college_name: parsedNotes?.college_name || null,
+    expected_leaving_date: tenant.expected_leaving_date || parsedNotes?.expected_leaving_date || null,
   };
 }
 
@@ -139,6 +140,7 @@ export async function createTenant(
     date_of_birth: tenantData.date_of_birth || null,
     id_proof_type: tenantData.id_proof_type || null,
     id_proof_number: tenantData.id_proof_number || null,
+    expected_leaving_date: tenantData.expected_leaving_date || null,
     notes: tenantData.notes || null,
   };
 
@@ -156,7 +158,6 @@ export async function createTenant(
       room_id: tenantData.room_id || null,
       bed_id: tenantData.bed_id || null,
       move_in_date: tenantData.move_in_date || null,
-      expected_leaving_date: tenantData.expected_leaving_date || null,
       security_deposit_paise: tenantData.security_deposit_paise || 0,
       status: tenantData.room_id && tenantData.bed_id ? 'active' : 'pending',
       notes: JSON.stringify(metadata),
@@ -222,26 +223,183 @@ export async function updateTenant(
   // Ensure tenant exists in this PG
   const existing = await getTenant(pgId, id);
 
-  const { gender, date_of_birth, id_proof_type, id_proof_number, id_type, id_number, college_name, security_deposit, ...dbUpdates } = updates as any;
+  const {
+    gender,
+    date_of_birth,
+    id_proof_type,
+    id_proof_number,
+    id_type,
+    id_number,
+    college_name,
+    expected_leaving_date,
+    security_deposit,
+    notes,
+    ...restUpdates
+  } = updates as any;
+
   const effectiveIdType = id_proof_type !== undefined ? id_proof_type : id_type;
   const effectiveIdNumber = id_proof_number !== undefined ? id_proof_number : id_number;
 
-  if (gender !== undefined || date_of_birth !== undefined || effectiveIdType !== undefined || effectiveIdNumber !== undefined || college_name !== undefined) {
-    const meta = {
-      gender: gender !== undefined ? (gender || null) : existing.gender,
-      date_of_birth: date_of_birth !== undefined ? (date_of_birth || null) : existing.date_of_birth,
-      id_proof_type: effectiveIdType !== undefined ? (effectiveIdType || null) : existing.id_proof_type,
-      id_proof_number: effectiveIdNumber !== undefined ? (effectiveIdNumber || null) : existing.id_proof_number,
-      college_name: college_name !== undefined ? (college_name || null) : existing.college_name,
-    };
-    (dbUpdates as any).notes = JSON.stringify(meta);
+  // Rebuild metadata inside notes JSON
+  let existingMeta: any = {};
+  if (existing.notes) {
+    try {
+      existingMeta = JSON.parse(existing.notes);
+    } catch {
+      existingMeta = { custom_notes: existing.notes };
+    }
+  }
+
+  const metaUpdated =
+    gender !== undefined ||
+    date_of_birth !== undefined ||
+    effectiveIdType !== undefined ||
+    effectiveIdNumber !== undefined ||
+    college_name !== undefined ||
+    expected_leaving_date !== undefined ||
+    notes !== undefined;
+
+  const meta = {
+    ...existingMeta,
+    gender: gender !== undefined ? (gender || null) : (existingMeta.gender ?? existing.gender ?? null),
+    date_of_birth: date_of_birth !== undefined ? (date_of_birth || null) : (existingMeta.date_of_birth ?? existing.date_of_birth ?? null),
+    id_proof_type: effectiveIdType !== undefined ? (effectiveIdType || null) : (existingMeta.id_proof_type ?? existing.id_proof_type ?? null),
+    id_proof_number: effectiveIdNumber !== undefined ? (effectiveIdNumber || null) : (existingMeta.id_proof_number ?? existing.id_proof_number ?? null),
+    college_name: college_name !== undefined ? (college_name || null) : (existingMeta.college_name ?? existing.college_name ?? null),
+    expected_leaving_date: expected_leaving_date !== undefined ? (expected_leaving_date || null) : (existingMeta.expected_leaving_date ?? null),
+    custom_notes: notes !== undefined ? (notes || null) : (existingMeta.custom_notes ?? null),
+  };
+
+  // Explicitly whitelist ONLY actual valid DB columns for tenants table
+  const ALLOWED_DB_COLUMNS = [
+    'full_name',
+    'phone',
+    'email',
+    'emergency_contact_name',
+    'emergency_contact_phone',
+    'permanent_address',
+    'room_id',
+    'bed_id',
+    'move_in_date',
+    'move_out_date',
+    'security_deposit_paise',
+    'status',
+  ];
+
+  const dbUpdates: Record<string, any> = {};
+
+  for (const key of ALLOWED_DB_COLUMNS) {
+    if (key in restUpdates) {
+      dbUpdates[key] = restUpdates[key];
+    }
+  }
+
+  if (metaUpdated) {
+    dbUpdates.notes = JSON.stringify(meta);
+  }
+
+  if (security_deposit !== undefined && dbUpdates.security_deposit_paise === undefined) {
+    dbUpdates.security_deposit_paise = Math.round(Number(security_deposit) * 100);
   }
 
   // Clean empty strings for UUID/Date columns
   if (dbUpdates.room_id === '') dbUpdates.room_id = null;
   if (dbUpdates.bed_id === '') dbUpdates.bed_id = null;
   if (dbUpdates.move_in_date === '') dbUpdates.move_in_date = null;
-  if (dbUpdates.expected_leaving_date === '') dbUpdates.expected_leaving_date = null;
+  if (dbUpdates.move_out_date === '') dbUpdates.move_out_date = null;
+
+  // Handle bed reassignment if bed_id changed
+  const newBedId = dbUpdates.bed_id !== undefined ? dbUpdates.bed_id : existing.bed_id;
+  const newRoomId = dbUpdates.room_id !== undefined ? dbUpdates.room_id : existing.room_id;
+  const bedChanged = dbUpdates.bed_id !== undefined && dbUpdates.bed_id !== existing.bed_id;
+
+  if (bedChanged) {
+    // Release old bed if any
+    if (existing.bed_id) {
+      await supabaseAdmin
+        .from('beds')
+        .update({ status: 'available', tenant_id: null, updated_at: new Date().toISOString() })
+        .eq('id', existing.bed_id)
+        .eq('pg_id', pgId);
+    }
+
+    // Occupy new bed if any
+    if (newBedId) {
+      await supabaseAdmin
+        .from('beds')
+        .update({ status: 'occupied', tenant_id: id, updated_at: new Date().toISOString() })
+        .eq('id', newBedId)
+        .eq('pg_id', pgId);
+    }
+
+    // Recalculate occupancy for old room if different from new room
+    if (existing.room_id && existing.room_id !== newRoomId) {
+      const { data: oldOccBeds } = await supabaseAdmin
+        .from('beds')
+        .select('id')
+        .eq('room_id', existing.room_id)
+        .eq('pg_id', pgId)
+        .eq('status', 'occupied');
+
+      const { data: oldRoom } = await supabaseAdmin
+        .from('rooms')
+        .select('total_beds')
+        .eq('id', existing.room_id)
+        .eq('pg_id', pgId)
+        .single();
+
+      const oldOccCount = oldOccBeds?.length || 0;
+      await supabaseAdmin
+        .from('rooms')
+        .update({
+          occupied_beds: oldOccCount,
+          status: oldOccCount >= (oldRoom?.total_beds || 0) ? 'full' : 'available',
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', existing.room_id)
+        .eq('pg_id', pgId);
+    }
+
+    // Recalculate occupancy for new room
+    if (newRoomId) {
+      const { data: newOccBeds } = await supabaseAdmin
+        .from('beds')
+        .select('id')
+        .eq('room_id', newRoomId)
+        .eq('pg_id', pgId)
+        .eq('status', 'occupied');
+
+      const { data: newRoom } = await supabaseAdmin
+        .from('rooms')
+        .select('total_beds')
+        .eq('id', newRoomId)
+        .eq('pg_id', pgId)
+        .single();
+
+      const newOccCount = newOccBeds?.length || 0;
+      await supabaseAdmin
+        .from('rooms')
+        .update({
+          occupied_beds: newOccCount,
+          status: newOccCount >= (newRoom?.total_beds || 0) ? 'full' : 'available',
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', newRoomId)
+        .eq('pg_id', pgId);
+    }
+  }
+
+  // If email was changed, also attempt to update auth user email
+  if (dbUpdates.email && existing.user_id && dbUpdates.email !== existing.email) {
+    try {
+      await supabaseAdmin.auth.admin.updateUserById(existing.user_id, {
+        email: dbUpdates.email,
+        email_confirm: true,
+      });
+    } catch (e: any) {
+      console.warn('[updateTenant] Could not update auth user email:', e.message);
+    }
+  }
 
   const { data, error } = await supabaseAdmin
     .from('tenants')

@@ -41,6 +41,7 @@ interface Tenant {
   expected_leaving_date?: string | null;
   security_deposit_paise: number;
   status: string;
+  notes?: string | null;
   room?: { room_number: string; floor?: number } | null;
   bed?: { bed_number: string } | null;
   created_at: string;
@@ -159,7 +160,7 @@ export default function AdminTenants() {
       email: tenant.email,
       phone: tenant.phone,
       gender: tenant.gender || 'male',
-      date_of_birth: tenant.date_of_birth || '',
+      date_of_birth: tenant.date_of_birth ? tenant.date_of_birth.split('T')[0] : '',
       emergency_contact_name: tenant.emergency_contact_name || '',
       emergency_contact_phone: tenant.emergency_contact_phone || '',
       permanent_address: tenant.permanent_address || '',
@@ -168,9 +169,9 @@ export default function AdminTenants() {
       room_id: tenant.room_id || '',
       bed_id: tenant.bed_id || '',
       security_deposit: (tenant.security_deposit_paise || 0) / 100,
-      move_in_date: tenant.move_in_date || '',
-      expected_leaving_date: tenant.expected_leaving_date || '',
-      notes: '',
+      move_in_date: tenant.move_in_date ? tenant.move_in_date.split('T')[0] : '',
+      expected_leaving_date: tenant.expected_leaving_date ? tenant.expected_leaving_date.split('T')[0] : '',
+      notes: tenant.notes || '',
     });
     setShowWizard(true);
   }
