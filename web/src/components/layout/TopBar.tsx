@@ -1,6 +1,6 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Bell, Search, LogOut, User, Building2, Bot, Languages, Moon, Sun, Settings, Download } from 'lucide-react';
+import { Bell, Search, LogOut, User, Building2, Bot, Languages, Moon, Sun, Settings, Download, Menu } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
 import { useLanguage } from '../../context/LanguageContext';
 import { useTheme } from '../../context/ThemeContext';
@@ -35,7 +35,28 @@ export function TopBar() {
   return (
     <header className="topbar-header" style={headerStyle}>
       {/* Left: Brand / PG Name */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0, flexShrink: 1 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, flexShrink: 1 }}>
+        {user?.role === 'admin' && (
+          <button
+            className="mobile-menu-btn"
+            onClick={() => window.dispatchEvent(new CustomEvent('toggle-mobile-sidebar'))}
+            style={{
+              background: 'none',
+              border: 'none',
+              cursor: 'pointer',
+              padding: '6px',
+              color: 'var(--color-text-primary)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              borderRadius: 'var(--radius-md)',
+              marginRight: '2px',
+            }}
+            aria-label="Open sidebar"
+          >
+            <Menu size={22} />
+          </button>
+        )}
         <div style={{
           width: '34px',
           height: '34px',
