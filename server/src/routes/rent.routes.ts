@@ -65,6 +65,16 @@ router.patch(['/:id', '/records/:id', '/:id/status', '/records/:id/status'], aut
   }
 });
 
+// POST /rent/:id/send-bill [Admin]
+router.post(['/:id/send-bill', '/records/:id/send-bill'], authorize('admin'), async (req: Request, res: Response) => {
+  try {
+    const result = await rentService.sendRentBillWhatsApp(req.user!.pgId, req.params.id);
+    res.json({ success: true, data: result });
+  } catch (err) {
+    res.status(400).json({ success: false, error: (err as Error).message });
+  }
+});
+
 // IMMUTABILITY: Reject DELETE on rent records
 router.delete(['/:id', '/records/:id'], (_req: Request, res: Response) => {
   res.status(405).json({

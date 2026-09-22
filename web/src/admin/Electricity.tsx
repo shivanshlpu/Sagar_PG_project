@@ -2,7 +2,8 @@ import React from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { DataTable, type Column, Badge, getStatusBadgeVariant, Button, Modal, FormField, Input, Select } from '../components/ui';
+import { ResponsiveTable, type ResponsiveColumn } from '../components/common/ResponsiveTable';
+import { Badge, getStatusBadgeVariant, Button, Modal, FormField, Input, Select } from '../components/ui';
 import { useToast } from '../components/ui/Toast';
 import { apiGet, apiPost, formatCurrency, formatMonth } from '../lib/api';
 import { Zap, Plus, Calculator, Info } from 'lucide-react';
@@ -113,7 +114,9 @@ export default function AdminElectricity() {
     }
   }
 
-  const columns: Column<ElBill>[] = [
+  const [expandedCardId, setExpandedCardId] = React.useState<string | null>(null);
+
+  const columns: ResponsiveColumn<ElBill>[] = [
     { key: 'month', header: 'Month', render: (r: ElBill) => formatMonth(r.month), sortable: true },
     { key: 'tenant', header: 'Tenant', render: (r: ElBill) => r.tenant?.full_name || '-' },
     { key: 'room', header: 'Room', render: (r: ElBill) => r.room?.room_number || '-' },
@@ -127,7 +130,7 @@ export default function AdminElectricity() {
 
   return (
     <div className="page-container">
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', flexWrap: 'wrap', gap: '12px' }}>
         <div>
           <h1 className="page-title" style={{ marginBottom: '4px' }}>Electricity Billing</h1>
           <p style={{ color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-sm)' }}>
@@ -139,10 +142,113 @@ export default function AdminElectricity() {
         </Button>
       </div>
 
-      <DataTable<ElBill>
+      <ResponsiveTable<ElBill>
         columns={columns}
         data={bills}
         isLoading={isLoading}
+        renderCard={(bill: ElBill) => {
+          const isExpanded = expandedCardId === bill.id;
+          return (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              {/* Upfront Header: Tenant, Room, Month, Status */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <div>
+                  <div style={{ fontWeight: 600, fontSize: 'var(--font-size-base)', color: 'var(--color-text-primary)' }}>
+                    {bill.tenant?.full_name || 'Tenant'}
+                  </div>
+                  <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', marginTop: '2px' }}>
+                    {bill.room?.room_number ? `Room ${bill.room.room_number}` : 'No room assigned'} • {formatMonth(bill.month)}
+                  </div>
+                </div>
+                <Badge variant={getStatusBadgeVariant(bill.status)}>{bill.status}</Badge>
+              </div>
+
+              {/* Upfront Important Metrics: Units & Amount */}
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: '1fr 1fr',
+                gap: '8px',
+                backgroundColor: 'var(--color-bg-surface-alt)',
+                padding: '12px 14px',
+                borderRadius: 'var(--radius-md)',
+              }}>
+                <div>
+                  <span style={{ fontSize: '11px', color: 'var(--color-text-secondary)', display: 'block', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Units Consumed</span>
+                  <span style={{ fontSize: 'var(--font-size-lg)', fontWeight: 700, color: 'var(--color-text-primary)' }}>
+                    {bill.units_consumed} <span style={{ fontSize: '11px', fontWeight: 400, color: 'var(--color-text-muted)' }}>units</span>
+                  </span>
+                </div>
+                <div>
+                  <span style={{ fontSize: '11px', color: 'var(--color-text-secondary)', display: 'block', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Total Cost</span>
+                  <span style={{ fontSize: 'var(--font-size-lg)', fontWeight: 700, color: 'var(--color-primary)' }} className="tabular-nums">
+                    {formatCurrency(bill.total_amount_paise)}
+                  </span>
+                </div>
+              </div>
+
+              {/* Expandable Reading Details Below */}
+              <div>
+                <button
+                  type="button"
+                  onClick={() => setExpandedCardId(isExpanded ? null : bill.id)}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    fontSize: 'var(--font-size-xs)',
+                    color: 'var(--color-primary)',
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    padding: '4px 0',
+                    fontWeight: 600,
+                  }}
+                >
+                  {isExpanded ? 'Hide Reading Breakdown ▲' : 'Show Meter Readings & Rate ▼'}
+                </button>
+
+                {isExpanded && (
+                  <div style={{
+                    marginTop: '8px',
+                    padding: '10px 14px',
+                    backgroundColor: 'var(--color-bg-base)',
+                    borderRadius: 'var(--radius-md)',
+                    border: '1px solid var(--color-border)',
+                    fontSize: 'var(--font-size-xs)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '6px',
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ color: 'var(--color-text-secondary)' }}>Previous Meter Reading:</span>
+                      <strong>{bill.previous_reading}</strong>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ color: 'var(--color-text-secondary)' }}>Current Meter Reading:</span>
+                      <strong>{bill.current_reading}</strong>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ color: 'var(--color-text-secondary)' }}>Rate per Unit:</span>
+                      <strong>₹{(bill.rate_per_unit_paise / 100).toFixed(2)} / unit</strong>
+                    </div>
+                    <div style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      borderTop: '1px dashed var(--color-border)',
+                      paddingTop: '6px',
+                      marginTop: '2px',
+                      color: 'var(--color-primary)',
+                      fontWeight: 600,
+                    }}>
+                      <span>Formula:</span>
+                      <span>({bill.current_reading} - {bill.previous_reading}) × ₹{(bill.rate_per_unit_paise / 100).toFixed(2)}</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        }}
         emptyState={
           <div style={{ textAlign: 'center', padding: '48px' }}>
             <Zap size={48} style={{ color: 'var(--color-text-muted)', marginBottom: '12px' }} />

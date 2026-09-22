@@ -70,6 +70,16 @@ router.patch('/:id/verify', authorize('admin'), validate(verifyPaymentSchema), a
   }
 });
 
+// POST /payments/:id/send-receipt [Admin only]
+router.post('/:id/send-receipt', authorize('admin'), async (req: Request, res: Response) => {
+  try {
+    const result = await paymentsService.sendPaymentReceiptWhatsApp(req.user!.pgId, req.params.id);
+    res.json({ success: true, data: result });
+  } catch (err) {
+    res.status(400).json({ success: false, error: (err as Error).message });
+  }
+});
+
 // GET /payments/:id [Admin or Tenant self]
 router.get('/:id', async (req: Request, res: Response) => {
   try {

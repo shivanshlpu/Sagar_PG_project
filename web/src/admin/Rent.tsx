@@ -5,7 +5,8 @@ import { useToast } from '../components/ui/Toast';
 import { useAuth } from '../hooks/useAuth';
 import { apiGet, apiPost, apiPatch, formatCurrency, formatMonth } from '../lib/api';
 import { formatDate } from '../lib/date';
-import { Banknote, Plus, Printer, FileText } from 'lucide-react';
+import { printElement } from '../lib/printHelper';
+import { Banknote, Plus, Printer, FileText, Send } from 'lucide-react';
 
 interface RentRecord {
   id: string;
@@ -28,6 +29,7 @@ export default function AdminRent() {
   const [monthFilter, setMonthFilter] = React.useState('');
   const [statusFilter, setStatusFilter] = React.useState('');
   const [selectedBill, setSelectedBill] = React.useState<RentRecord | null>(null);
+  const [isSendingWa, setIsSendingWa] = React.useState(false);
   const { showToast } = useToast();
 
   React.useEffect(() => { loadRecords(); }, [monthFilter, statusFilter]);
@@ -60,6 +62,22 @@ export default function AdminRent() {
     const res = await apiPatch(`/rent/${id}/status`, { status });
     if (res.success) { showToast('Status updated'); loadRecords(); }
     else showToast(res.error || 'Update failed', 'error');
+  }
+
+  async function sendWhatsAppBill(rentId: string) {
+    try {
+      setIsSendingWa(true);
+      const res = await apiPost(`/rent/${rentId}/send-bill`, {});
+      if (res.success) {
+        showToast('Rent bill dispatched to tenant WhatsApp successfully!');
+      } else {
+        showToast(res.error || 'Failed to send WhatsApp bill', 'error');
+      }
+    } catch (err: any) {
+      showToast(err?.message || 'Failed to send bill', 'error');
+    } finally {
+      setIsSendingWa(false);
+    }
   }
 
   const columns: ResponsiveColumn<RentRecord>[] = [
@@ -136,6 +154,9 @@ export default function AdminRent() {
               <Button size="sm" variant="secondary" onClick={() => setSelectedBill(record)}>
                 <FileText size={14} /> View Bill
               </Button>
+              <Button size="sm" variant="secondary" onClick={() => sendWhatsAppBill(record.id)} isLoading={isSendingWa} title="Send on WhatsApp">
+                <Send size={14} /> Send WhatsApp
+              </Button>
               {record.status !== 'paid' && (
                 <Select
                   options={[
@@ -159,6 +180,14 @@ export default function AdminRent() {
               title="View & Print Bill"
             >
               <FileText size={15} /> Bill
+            </button>
+            <button
+              onClick={() => sendWhatsAppBill(row.id)}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-primary)', display: 'flex', alignItems: 'center', padding: '4px', borderRadius: 'var(--radius-sm)' }}
+              title="Send Bill on WhatsApp"
+              disabled={isSendingWa}
+            >
+              <Send size={15} />
             </button>
             {row.status !== 'paid' ? (
               <Select
@@ -203,11 +232,21 @@ export default function AdminRent() {
           title="Rent Invoice & Bill"
           size="md"
           footer={
-            <div style={{ display: 'flex', gap: '8px', justifyContent: 'space-between', width: '100%' }}>
+            <div style={{ display: 'flex', gap: '8px', justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
               <Button variant="secondary" onClick={() => setSelectedBill(null)}>Close</Button>
-              <Button onClick={() => window.print()}>
-                <Printer size={16} /> Print Invoice
-              </Button>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                <Button
+                  variant="secondary"
+                  onClick={() => sendWhatsAppBill(selectedBill.id)}
+                  isLoading={isSendingWa}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                >
+                  <Send size={15} /> Send on WhatsApp
+                </Button>
+                <Button onClick={() => printElement('printable-rent-bill', `Invoice-${selectedBill.month}-${selectedBill.id.slice(0, 6)}`)}>
+                  <Printer size={16} /> Print Invoice
+                </Button>
+              </div>
             </div>
           }
         >

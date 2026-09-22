@@ -19,6 +19,7 @@ import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { FormField, Input, Select, Textarea } from '../components/ui/FormField';
 import { apiGet, apiUpload } from '../lib/api';
+import { compressImage } from '../lib/imageCompressor';
 import { useAuth } from '../hooks/useAuth';
 import { useLanguage } from '../context/LanguageContext';
 
@@ -120,14 +121,14 @@ export function TenantOnboarding({ onComplete }: TenantOnboardingProps) {
   const selectedRoom = rooms.find((r) => r.id === selectedRoomId);
   const availableBeds = selectedRoom?.beds || [];
 
-  // File Upload Handlers with 2MB validation
-  const handleAadhaarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // File Upload Handlers with Automatic Client Compression
+  const handleAadhaarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     setAadhaarError('');
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (file.size > 2 * 1024 * 1024) {
-      setAadhaarError('File exceeds 2MB limit. Please choose a smaller image.');
+    if (file.size > 15 * 1024 * 1024) {
+      setAadhaarError('File exceeds 15MB limit. Please choose a smaller image.');
       return;
     }
 
@@ -136,23 +137,28 @@ export function TenantOnboarding({ onComplete }: TenantOnboardingProps) {
       return;
     }
 
-    setAadhaarFile(file);
-    if (file.type.startsWith('image/')) {
-      const reader = new FileReader();
-      reader.onloadend = () => setAadhaarPreview(reader.result as string);
-      reader.readAsDataURL(file);
-    } else {
-      setAadhaarPreview(null);
+    try {
+      const processedFile = await compressImage(file, { maxWidth: 1200, maxHeight: 1200, quality: 0.75 });
+      setAadhaarFile(processedFile);
+      if (processedFile.type.startsWith('image/')) {
+        const reader = new FileReader();
+        reader.onloadend = () => setAadhaarPreview(reader.result as string);
+        reader.readAsDataURL(processedFile);
+      } else {
+        setAadhaarPreview(null);
+      }
+    } catch {
+      setAadhaarFile(file);
     }
   };
 
-  const handleCollegeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleCollegeChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     setCollegeError('');
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (file.size > 2 * 1024 * 1024) {
-      setCollegeError('File exceeds 2MB limit. Please choose a smaller image.');
+    if (file.size > 15 * 1024 * 1024) {
+      setCollegeError('File exceeds 15MB limit. Please choose a smaller image.');
       return;
     }
 
@@ -161,13 +167,18 @@ export function TenantOnboarding({ onComplete }: TenantOnboardingProps) {
       return;
     }
 
-    setCollegeFile(file);
-    if (file.type.startsWith('image/')) {
-      const reader = new FileReader();
-      reader.onloadend = () => setCollegePreview(reader.result as string);
-      reader.readAsDataURL(file);
-    } else {
-      setCollegePreview(null);
+    try {
+      const processedFile = await compressImage(file, { maxWidth: 1200, maxHeight: 1200, quality: 0.75 });
+      setCollegeFile(processedFile);
+      if (processedFile.type.startsWith('image/')) {
+        const reader = new FileReader();
+        reader.onloadend = () => setCollegePreview(reader.result as string);
+        reader.readAsDataURL(processedFile);
+      } else {
+        setCollegePreview(null);
+      }
+    } catch {
+      setCollegeFile(file);
     }
   };
 

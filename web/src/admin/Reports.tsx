@@ -297,30 +297,38 @@ export default function AdminReports() {
         )}
       </Card>
 
-      {/* Visual Revenue Breakdown Charts */}
-      <div className="no-print" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+      {/* Visual Revenue Breakdown Charts — Stacked vertically for clear visibility */}
+      <div className="no-print" style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '24px' }}>
         <Card padding="lg">
           <h3 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 600, marginBottom: '16px' }}>Revenue Breakdown</h3>
-          <ResponsiveContainer width="100%" height={280}>
-            <BarChart data={barData}>
+          <ResponsiveContainer width="100%" height={320}>
+            <BarChart data={barData} margin={{ top: 10, right: 20, left: 10, bottom: 10 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
-              <XAxis dataKey="name" tick={{ fontSize: 12, fill: 'var(--color-text-secondary)' }} />
+              <XAxis dataKey="name" tick={{ fontSize: 13, fill: 'var(--color-text-secondary)' }} />
               <YAxis tick={{ fontSize: 12, fill: 'var(--color-text-secondary)' }} />
               <Tooltip formatter={(value: any) => `₹${Number(value || 0).toLocaleString('en-IN')}`} />
-              <Bar dataKey="value" fill="var(--color-primary)" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="value" fill="var(--color-primary)" radius={[4, 4, 0, 0]} barSize={48} />
             </BarChart>
           </ResponsiveContainer>
         </Card>
 
         <Card padding="lg">
           <h3 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 600, marginBottom: '16px' }}>Collection Status</h3>
-          <ResponsiveContainer width="100%" height={280}>
+          <ResponsiveContainer width="100%" height={320}>
             <PieChart>
-              <Pie data={pieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={100} label={({ name, value }: any) => `${name}: ${formatCurrency(Number(value || 0))}`}>
+              <Pie
+                data={pieData}
+                dataKey="value"
+                nameKey="name"
+                cx="50%"
+                cy="48%"
+                outerRadius={110}
+                label={({ name, value }: any) => `${name}: ${formatCurrency(Number(value || 0))}`}
+              >
                 {pieData.map((_, i) => <Cell key={i} fill={COLORS[i]} />)}
               </Pie>
               <Tooltip formatter={(value: any) => formatCurrency(Number(value || 0))} />
-              <Legend />
+              <Legend verticalAlign="bottom" height={36} />
             </PieChart>
           </ResponsiveContainer>
         </Card>

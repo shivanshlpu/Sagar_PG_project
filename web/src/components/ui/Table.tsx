@@ -175,7 +175,9 @@ const tableContainerStyle: React.CSSProperties = {
   backgroundColor: 'var(--color-bg-surface)',
   border: '1px solid var(--color-border)',
   borderRadius: 'var(--radius-lg)',
-  overflow: 'hidden',
+  overflowX: 'auto',
+  WebkitOverflowScrolling: 'touch',
+  maxWidth: '100%',
 };
 
 const tableStyle: React.CSSProperties = {

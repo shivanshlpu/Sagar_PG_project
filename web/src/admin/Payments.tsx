@@ -3,9 +3,10 @@ import { ResponsiveTable, type ResponsiveColumn } from '../components/common/Res
 import { Badge, getStatusBadgeVariant, Button, Modal, Select } from '../components/ui';
 import { useToast } from '../components/ui/Toast';
 import { useAuth } from '../hooks/useAuth';
-import { apiGet, apiPatch, formatCurrency } from '../lib/api';
+import { apiGet, apiPatch, apiPost, formatCurrency } from '../lib/api';
 import { formatDate } from '../lib/date';
-import { CreditCard, Check, X, Printer, Receipt } from 'lucide-react';
+import { printElement } from '../lib/printHelper';
+import { CreditCard, Check, X, Printer, Receipt, Send } from 'lucide-react';
 
 interface Payment {
   id: string;
@@ -24,6 +25,7 @@ export default function AdminPayments() {
   const [isLoading, setIsLoading] = React.useState(true);
   const [statusFilter, setStatusFilter] = React.useState('');
   const [selectedReceipt, setSelectedReceipt] = React.useState<Payment | null>(null);
+  const [isSendingWa, setIsSendingWa] = React.useState(false);
   const { showToast } = useToast();
 
   React.useEffect(() => { loadPayments(); }, [statusFilter]);
@@ -42,8 +44,28 @@ export default function AdminPayments() {
     const reason = status === 'rejected' ? prompt('Rejection reason:') : null;
     if (status === 'rejected' && reason === null) return; // User cancelled
     const res = await apiPatch(`/payments/${id}/verify`, { status, rejection_reason: reason });
-    if (res.success) { showToast(`Payment marked as ${status}`); loadPayments(); }
-    else showToast(res.error || 'Failed', 'error');
+    if (res.success) {
+      showToast(status === 'verified' ? 'Payment verified & WhatsApp receipt sent!' : 'Payment rejected');
+      loadPayments();
+    } else {
+      showToast(res.error || 'Failed', 'error');
+    }
+  }
+
+  async function sendWhatsAppReceipt(paymentId: string) {
+    try {
+      setIsSendingWa(true);
+      const res = await apiPost(`/payments/${paymentId}/send-receipt`, {});
+      if (res.success) {
+        showToast('Receipt sent to tenant WhatsApp successfully!');
+      } else {
+        showToast(res.error || 'Failed to dispatch WhatsApp receipt', 'error');
+      }
+    } catch (err: any) {
+      showToast(err?.message || 'Failed to send receipt', 'error');
+    } finally {
+      setIsSendingWa(false);
+    }
   }
 
   const columns: ResponsiveColumn<Payment>[] = [
@@ -121,9 +143,12 @@ export default function AdminPayments() {
               <Button size="sm" variant="secondary" onClick={() => setSelectedReceipt(payment)}>
                 <Receipt size={14} /> Receipt
               </Button>
+              <Button size="sm" variant="secondary" onClick={() => sendWhatsAppReceipt(payment.id)} isLoading={isSendingWa} title="Send on WhatsApp">
+                <Send size={14} /> Send WhatsApp
+              </Button>
               {payment.status === 'submitted' && (
                 <>
-                  <Button size="sm" onClick={() => verify(payment.id, 'verified')} style={{ backgroundColor: 'var(--color-success)', color: '#fff' }}>
+                  <Button size="sm" variant="primary" onClick={() => verify(payment.id, 'verified')}>
                     <Check size={14} /> Verify
                   </Button>
                   <Button size="sm" variant="danger" onClick={() => verify(payment.id, 'rejected')}>
@@ -142,6 +167,14 @@ export default function AdminPayments() {
               title="View & Print Receipt"
             >
               <Receipt size={15} /> Receipt
+            </button>
+            <button
+              onClick={() => sendWhatsAppReceipt(row.id)}
+              style={{ ...iconBtnStyle, color: 'var(--color-primary)' }}
+              title="Send Receipt on WhatsApp"
+              disabled={isSendingWa}
+            >
+              <Send size={15} />
             </button>
             {row.status === 'submitted' && (
               <>
@@ -171,11 +204,21 @@ export default function AdminPayments() {
           title="Payment Receipt"
           size="md"
           footer={
-            <div className="modal-footer-responsive" style={{ width: '100%' }}>
+            <div className="modal-footer-responsive" style={{ width: '100%', display: 'flex', gap: '8px', justifyContent: 'space-between', flexWrap: 'wrap' }}>
               <Button variant="secondary" onClick={() => setSelectedReceipt(null)}>Close</Button>
-              <Button onClick={() => window.print()}>
-                <Printer size={16} /> Print Receipt
-              </Button>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                <Button
+                  variant="secondary"
+                  onClick={() => sendWhatsAppReceipt(selectedReceipt.id)}
+                  isLoading={isSendingWa}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                >
+                  <Send size={15} /> Send on WhatsApp
+                </Button>
+                <Button onClick={() => printElement('printable-payment-receipt', `Receipt-REC-${selectedReceipt.id.slice(0, 8).toUpperCase()}`)}>
+                  <Printer size={16} /> Print Receipt
+                </Button>
+              </div>
             </div>
           }
         >

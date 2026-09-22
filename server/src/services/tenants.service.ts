@@ -70,6 +70,10 @@ export async function getTenant(pgId: string, id: string) {
       })
     );
     data.tenant_documents = docsWithUrls;
+    data.documents = docsWithUrls;
+  } else {
+    data.tenant_documents = [];
+    data.documents = [];
   }
 
   return parseTenantMetadata(data);
@@ -218,17 +222,26 @@ export async function updateTenant(
   // Ensure tenant exists in this PG
   const existing = await getTenant(pgId, id);
 
-  const { gender, date_of_birth, id_proof_type, id_proof_number, college_name, ...dbUpdates } = updates as any;
-  if (gender !== undefined || date_of_birth !== undefined || id_proof_type !== undefined || id_proof_number !== undefined || college_name !== undefined) {
+  const { gender, date_of_birth, id_proof_type, id_proof_number, id_type, id_number, college_name, security_deposit, ...dbUpdates } = updates as any;
+  const effectiveIdType = id_proof_type !== undefined ? id_proof_type : id_type;
+  const effectiveIdNumber = id_proof_number !== undefined ? id_proof_number : id_number;
+
+  if (gender !== undefined || date_of_birth !== undefined || effectiveIdType !== undefined || effectiveIdNumber !== undefined || college_name !== undefined) {
     const meta = {
-      gender: gender !== undefined ? gender : existing.gender,
-      date_of_birth: date_of_birth !== undefined ? date_of_birth : existing.date_of_birth,
-      id_proof_type: id_proof_type !== undefined ? id_proof_type : existing.id_proof_type,
-      id_proof_number: id_proof_number !== undefined ? id_proof_number : existing.id_proof_number,
-      college_name: college_name !== undefined ? college_name : existing.college_name,
+      gender: gender !== undefined ? (gender || null) : existing.gender,
+      date_of_birth: date_of_birth !== undefined ? (date_of_birth || null) : existing.date_of_birth,
+      id_proof_type: effectiveIdType !== undefined ? (effectiveIdType || null) : existing.id_proof_type,
+      id_proof_number: effectiveIdNumber !== undefined ? (effectiveIdNumber || null) : existing.id_proof_number,
+      college_name: college_name !== undefined ? (college_name || null) : existing.college_name,
     };
     (dbUpdates as any).notes = JSON.stringify(meta);
   }
+
+  // Clean empty strings for UUID/Date columns
+  if (dbUpdates.room_id === '') dbUpdates.room_id = null;
+  if (dbUpdates.bed_id === '') dbUpdates.bed_id = null;
+  if (dbUpdates.move_in_date === '') dbUpdates.move_in_date = null;
+  if (dbUpdates.expected_leaving_date === '') dbUpdates.expected_leaving_date = null;
 
   const { data, error } = await supabaseAdmin
     .from('tenants')

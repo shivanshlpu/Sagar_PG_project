@@ -1,5 +1,7 @@
 import { supabaseAdmin } from '../config/supabase';
 import { logAudit } from './auditLog.service';
+import { sendWhatsAppMessage } from './whatsapp.service';
+import { formatDateDMY } from '../utils/date';
 import crypto from 'crypto';
 
 export async function listPayments(
@@ -159,7 +161,57 @@ export async function verifyPayment(
     details: { status, rejection_reason: rejectionReason },
   });
 
+  // If verified, send automated WhatsApp receipt to the resident
+  if (status === 'verified') {
+    try {
+      await sendPaymentReceiptWhatsApp(pgId, id);
+    } catch (waErr: any) {
+      console.warn(`[Payments] WhatsApp receipt dispatch error: ${waErr?.message}`);
+    }
+  }
+
   return payment;
+}
+
+export async function sendPaymentReceiptWhatsApp(pgId: string, paymentId: string) {
+  const { data: payment, error } = await supabaseAdmin
+    .from('payments')
+    .select('*, tenant:tenants(full_name, phone, room:rooms(room_number))')
+    .eq('id', paymentId)
+    .eq('pg_id', pgId)
+    .single();
+
+  if (error || !payment) throw new Error('Payment record not found');
+  if (!payment.tenant?.phone) throw new Error('Tenant has no registered phone number');
+
+  const { data: pg } = await supabaseAdmin
+    .from('pgs')
+    .select('name, address, phone')
+    .eq('id', pgId)
+    .single();
+
+  const pgName = pg?.name || 'Sagar PG';
+  const tenantName = payment.tenant.full_name || 'Resident';
+  const roomNumber = (payment.tenant as any).room?.room_number ? `Room ${(payment.tenant as any).room.room_number}` : 'N/A';
+  const amountFormatted = `₹${(payment.amount_paise / 100).toLocaleString('en-IN')}`;
+  const receiptNo = `REC-${payment.id.slice(0, 8).toUpperCase()}`;
+  const dateFormatted = formatDateDMY(payment.verified_at || payment.created_at);
+
+  const receiptMsg =
+    `🧾 *PAYMENT RECEIPT — ${pgName.toUpperCase()}*\n` +
+    `━━━━━━━━━━━━━━━━━━━━\n` +
+    `Receipt No: *${receiptNo}*\n` +
+    `Date: *${dateFormatted}*\n` +
+    `Tenant: *${tenantName}*\n` +
+    `Room: *${roomNumber}*\n\n` +
+    `💰 *Amount Paid: ${amountFormatted}*\n` +
+    `Payment Method: *${(payment.payment_method || 'UPI').toUpperCase()}*\n` +
+    `Status: *✅ VERIFIED & ACCEPTED*\n` +
+    `━━━━━━━━━━━━━━━━━━━━\n` +
+    `Thank you! This is an immutable digital receipt recorded by ${pgName}.`;
+
+  await sendWhatsAppMessage(payment.tenant.phone, receiptMsg);
+  return { success: true, message: `Receipt sent to ${payment.tenant.phone}` };
 }
 
 export async function uploadPaymentScreenshot(

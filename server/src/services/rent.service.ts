@@ -1,6 +1,8 @@
 import { supabaseAdmin } from '../config/supabase';
 import { logAudit } from './auditLog.service';
 import { getBillingSettings } from './settings.service';
+import { sendWhatsAppMessage } from './whatsapp.service';
+import { formatDateDMY } from '../utils/date';
 
 export async function listRentRecords(
   pgId: string,
@@ -353,5 +355,47 @@ export async function getTenantBillingSummary(pgId: string, tenantId: string) {
     electricityBills: electricityBills || [],
     payments: payments || [],
   };
+}
+
+export async function sendRentBillWhatsApp(pgId: string, rentRecordId: string) {
+  const { data: record, error } = await supabaseAdmin
+    .from('rent_records')
+    .select('*, tenant:tenants(full_name, phone), room:rooms(room_number)')
+    .eq('id', rentRecordId)
+    .eq('pg_id', pgId)
+    .single();
+
+  if (error || !record) throw new Error('Rent record not found');
+  if (!record.tenant?.phone) throw new Error('Tenant has no registered phone number');
+
+  const { data: pg } = await supabaseAdmin
+    .from('pgs')
+    .select('name, address, phone')
+    .eq('id', pgId)
+    .single();
+
+  const pgName = pg?.name || 'Sagar PG';
+  const tenantName = (record.tenant as any)?.full_name || 'Resident';
+  const roomNumber = (record.room as any)?.room_number ? `Room ${(record.room as any).room_number}` : 'N/A';
+  const totalAmount = `₹${(record.total_due_paise / 100).toLocaleString('en-IN')}`;
+  const dueDateFormatted = formatDateDMY(record.due_date);
+  const invoiceNo = `INV-${record.month.replace('-', '')}-${record.id.slice(0, 6).toUpperCase()}`;
+
+  const invoiceMsg =
+    `📋 *RENT INVOICE — ${pgName.toUpperCase()}*\n` +
+    `━━━━━━━━━━━━━━━━━━━━\n` +
+    `Invoice: *${invoiceNo}*\n` +
+    `Month: *${record.month}*\n` +
+    `Tenant: *${tenantName}*\n` +
+    `Room: *${roomNumber}*\n\n` +
+    `💵 *Total Due: ${totalAmount}*\n` +
+    `Due Date: *${dueDateFormatted}*\n` +
+    `Status: *${record.status.toUpperCase()}*\n` +
+    `━━━━━━━━━━━━━━━━━━━━\n` +
+    `Please pay before ${dueDateFormatted} to avoid late fees.\n` +
+    `UPI payments can be submitted in your tenant portal.`;
+
+  await sendWhatsAppMessage(record.tenant.phone, invoiceMsg);
+  return { success: true, message: `Invoice sent to ${record.tenant.phone}` };
 }
 

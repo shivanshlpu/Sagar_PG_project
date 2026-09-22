@@ -178,11 +178,17 @@ export default function AdminTenants() {
   async function handleWizardSubmit(data: WizardFormData) {
     setIsSubmitting(true);
     try {
-      const payload = {
-        ...data,
-        security_deposit_paise: Math.round((data.security_deposit || 0) * 100),
+      const { security_deposit, ...cleanData } = data;
+      const payload: Record<string, any> = {
+        ...cleanData,
+        security_deposit_paise: Math.round((security_deposit || 0) * 100),
         room_id: data.room_id || null,
         bed_id: data.bed_id || null,
+        date_of_birth: data.date_of_birth || null,
+        move_in_date: data.move_in_date || null,
+        expected_leaving_date: data.expected_leaving_date || null,
+        id_proof_type: data.id_proof_type || null,
+        id_proof_number: data.id_proof_number || null,
       };
 
       if (editingTenant) {
@@ -766,101 +772,107 @@ export default function AdminTenants() {
               <h4 style={{ fontSize: '14px', fontWeight: 700, marginBottom: '10px', color: 'var(--color-text-primary)' }}>
                 Uploaded Verification Documents
               </h4>
-              {(!viewingTenant.documents || viewingTenant.documents.length === 0) ? (
-                <div style={{
-                  padding: '24px',
-                  textAlign: 'center',
-                  backgroundColor: 'var(--color-bg-surface-alt)',
-                  borderRadius: 'var(--radius-md)',
-                  color: 'var(--color-text-muted)',
-                  fontSize: 'var(--font-size-sm)',
-                }}>
-                  No identity verification documents uploaded yet.
-                </div>
-              ) : (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '16px' }}>
-                  {viewingTenant.documents.map((doc: any) => {
-                    const isImage = /\.(jpg|jpeg|png|webp)$/i.test(doc.file_name || doc.file_url);
-                    return (
-                      <div
-                        key={doc.id}
-                        style={{
-                          border: '1px solid var(--color-border)',
-                          borderRadius: 'var(--radius-md)',
-                          padding: '14px',
-                          backgroundColor: 'var(--color-bg-surface-alt)',
-                          display: 'flex',
-                          flexDirection: 'column',
-                          gap: '10px',
-                        }}
-                      >
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <FileText size={18} style={{ color: 'var(--color-primary)' }} />
-                            <span style={{ fontWeight: 600, fontSize: '13px', color: 'var(--color-text-primary)' }}>
-                              {doc.file_name}
-                            </span>
-                          </div>
-                          {doc.signed_url && (
-                            <a
-                              href={doc.signed_url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              style={{
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: '4px',
-                                fontSize: '11px',
-                                color: 'var(--color-primary)',
-                                fontWeight: 600,
-                                textDecoration: 'none',
-                              }}
-                            >
-                              Open <ExternalLink size={12} />
-                            </a>
-                          )}
-                        </div>
-
-                        {/* Image Preview */}
-                        {isImage && doc.signed_url ? (
-                          <div style={{
-                            backgroundColor: 'var(--color-bg-base)',
-                            borderRadius: 'var(--radius-sm)',
+              {(() => {
+                const tenantDocs = viewingTenant.documents || (viewingTenant as any).tenant_documents || [];
+                if (tenantDocs.length === 0) {
+                  return (
+                    <div style={{
+                      padding: '24px',
+                      textAlign: 'center',
+                      backgroundColor: 'var(--color-bg-surface-alt)',
+                      borderRadius: 'var(--radius-md)',
+                      color: 'var(--color-text-muted)',
+                      fontSize: 'var(--font-size-sm)',
+                    }}>
+                      No identity verification documents uploaded yet.
+                    </div>
+                  );
+                }
+                return (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '16px' }}>
+                    {tenantDocs.map((doc: any) => {
+                      const isImage = /\.(jpg|jpeg|png|webp)$/i.test(doc.file_name || doc.file_path || doc.file_url || '');
+                      return (
+                        <div
+                          key={doc.id}
+                          style={{
                             border: '1px solid var(--color-border)',
-                            overflow: 'hidden',
-                            height: '180px',
+                            borderRadius: 'var(--radius-md)',
+                            padding: '14px',
+                            backgroundColor: 'var(--color-bg-surface-alt)',
                             display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                          }}>
-                            <img
-                              src={doc.signed_url}
-                              alt={doc.file_name}
-                              style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
-                            />
+                            flexDirection: 'column',
+                            gap: '10px',
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <FileText size={18} style={{ color: 'var(--color-primary)' }} />
+                              <span style={{ fontWeight: 600, fontSize: '13px', color: 'var(--color-text-primary)' }}>
+                                {doc.file_name}
+                              </span>
+                            </div>
+                            {doc.signed_url && (
+                              <a
+                                href={doc.signed_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '4px',
+                                  fontSize: '11px',
+                                  color: 'var(--color-primary)',
+                                  fontWeight: 600,
+                                  textDecoration: 'none',
+                                }}
+                              >
+                                Open <ExternalLink size={12} />
+                              </a>
+                            )}
                           </div>
-                        ) : (
-                          <div style={{
-                            padding: '30px',
-                            textAlign: 'center',
-                            backgroundColor: 'var(--color-bg-base)',
-                            borderRadius: 'var(--radius-sm)',
-                            color: 'var(--color-text-muted)',
-                            fontSize: '12px',
-                          }}>
-                            Document available for view/download via link above.
-                          </div>
-                        )}
 
-                        <div style={{ fontSize: '11px', color: 'var(--color-text-muted)', display: 'flex', justifyContent: 'space-between' }}>
-                          <span>Type: {doc.document_type || 'ID Proof'}</span>
-                          <span>{doc.created_at ? formatDate(doc.created_at) : ''}</span>
+                          {/* Image Preview */}
+                          {isImage && doc.signed_url ? (
+                            <div style={{
+                              backgroundColor: 'var(--color-bg-base)',
+                              borderRadius: 'var(--radius-sm)',
+                              border: '1px solid var(--color-border)',
+                              overflow: 'hidden',
+                              height: '180px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                            }}>
+                              <img
+                                src={doc.signed_url}
+                                alt={doc.file_name}
+                                style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
+                              />
+                            </div>
+                          ) : (
+                            <div style={{
+                              padding: '30px',
+                              textAlign: 'center',
+                              backgroundColor: 'var(--color-bg-base)',
+                              borderRadius: 'var(--radius-sm)',
+                              color: 'var(--color-text-muted)',
+                              fontSize: '12px',
+                            }}>
+                              Document available for view/download via link above.
+                            </div>
+                          )}
+
+                          <div style={{ fontSize: '11px', color: 'var(--color-text-muted)', display: 'flex', justifyContent: 'space-between' }}>
+                            <span>Type: {doc.document_type || doc.file_type || 'ID Proof'}</span>
+                            <span>{doc.created_at ? formatDate(doc.created_at) : ''}</span>
+                          </div>
                         </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
+                      );
+                    })}
+                  </div>
+                );
+              })()}
             </div>
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '12px' }}>

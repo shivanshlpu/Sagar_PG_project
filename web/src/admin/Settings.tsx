@@ -741,7 +741,7 @@ export default function AdminSettings() {
                 </p>
 
                 {/* Sub-tabs for QR vs Pairing Code */}
-                <div style={{ display: 'flex', gap: '8px', marginTop: '14px' }}>
+                <div style={{ display: 'flex', gap: '8px', marginTop: '14px', flexWrap: 'wrap' }}>
                   <button
                     onClick={() => {
                       setConnectionMethod('qr');
@@ -762,16 +762,17 @@ export default function AdminSettings() {
 
               {/* METHOD 1: QR CODE */}
               {connectionMethod === 'qr' && (
-                <div style={{ display: 'grid', gridTemplateColumns: 'minmax(260px, 320px) 1fr', gap: '32px', alignItems: 'center' }}>
-                  <div style={qrWrapperStyle}>
-                    {waData.qr ? (
-                      <img
-                        src={waData.qr}
-                        alt="WhatsApp Connection QR Code"
-                        style={{ width: '240px', height: '240px', display: 'block', borderRadius: 'var(--radius-md)' }}
-                      />
-                    ) : (
-                      <div style={{ height: '240px', width: '240px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '12px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '24px', alignItems: 'center' }}>
+                  <div style={{ display: 'flex', justifyContent: 'center' }}>
+                    <div style={qrWrapperStyle}>
+                      {waData.qr ? (
+                        <img
+                          src={waData.qr}
+                          alt="WhatsApp Connection QR Code"
+                          style={{ maxWidth: '100%', width: '240px', height: '240px', display: 'block', borderRadius: 'var(--radius-md)' }}
+                        />
+                      ) : (
+                        <div style={{ height: '240px', width: '240px', maxWidth: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '12px' }}>
                         <QrCode size={48} style={{ color: 'var(--color-text-muted)' }} />
                         <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', textAlign: 'center', padding: '0 16px' }}>
                           Click "Generate QR Code" to create a live QR code.
@@ -782,8 +783,9 @@ export default function AdminSettings() {
                       </div>
                     )}
                   </div>
+                </div>
 
-                  <div>
+                <div>
                     <h4 style={{ fontSize: 'var(--font-size-base)', fontWeight: 600, marginBottom: '10px' }}>
                       How to scan:
                     </h4>
@@ -824,7 +826,7 @@ export default function AdminSettings() {
                       <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: 600 }}>
                         Your WhatsApp Connection Pairing Code:
                       </p>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
                         <span style={pairingCodeDisplayStyle}>
                           {waData.pairingCode.length === 8
                             ? `${waData.pairingCode.slice(0, 4)} - ${waData.pairingCode.slice(4)}`
@@ -872,7 +874,7 @@ export default function AdminSettings() {
                 Verify your WhatsApp connection by dispatching a live test message to any WhatsApp number.
               </p>
 
-              <div style={{ display: 'grid', gridTemplateColumns: 'minmax(200px, 320px) 1fr', gap: '16px', alignItems: 'flex-start' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '16px', alignItems: 'flex-start' }}>
                 <FormField label="Recipient Phone (with country code)" required hint="e.g. 919876543210">
                   <Input
                     placeholder="919876543210"
@@ -1382,7 +1384,11 @@ const tabContainerStyle: React.CSSProperties = {
   gap: '8px',
   borderBottom: '1px solid var(--color-border)',
   marginBottom: '24px',
-  paddingBottom: '2px',
+  paddingBottom: '4px',
+  overflowX: 'auto',
+  WebkitOverflowScrolling: 'touch',
+  scrollbarWidth: 'none',
+  msOverflowStyle: 'none',
 };
 
 const activeTabStyle: React.CSSProperties = {
@@ -1398,6 +1404,8 @@ const activeTabStyle: React.CSSProperties = {
   fontSize: 'var(--font-size-base)',
   cursor: 'pointer',
   transition: 'all 150ms ease',
+  flexShrink: 0,
+  whiteSpace: 'nowrap',
 };
 
 const inactiveTabStyle: React.CSSProperties = {
@@ -1413,6 +1421,8 @@ const inactiveTabStyle: React.CSSProperties = {
   fontSize: 'var(--font-size-base)',
   cursor: 'pointer',
   transition: 'all 150ms ease',
+  flexShrink: 0,
+  whiteSpace: 'nowrap',
 };
 
 const pillBadgeStyle: React.CSSProperties = {
@@ -1532,6 +1542,8 @@ const qrWrapperStyle: React.CSSProperties = {
   display: 'inline-flex',
   justifyContent: 'center',
   alignItems: 'center',
+  maxWidth: '100%',
+  boxSizing: 'border-box',
 };
 
 const activePillStyle: React.CSSProperties = {
@@ -1571,11 +1583,12 @@ const pairingCodeBoxStyle: React.CSSProperties = {
 };
 
 const pairingCodeDisplayStyle: React.CSSProperties = {
-  fontSize: '28px',
+  fontSize: 'clamp(20px, 6vw, 28px)',
   fontWeight: 700,
-  letterSpacing: '4px',
+  letterSpacing: '3px',
   fontFamily: 'monospace',
   color: 'var(--color-primary)',
+  wordBreak: 'break-all',
 };
 
 const advisoryBoxStyle: React.CSSProperties = {

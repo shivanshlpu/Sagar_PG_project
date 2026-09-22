@@ -88,26 +88,32 @@ export const assignBedSchema = z.object({
 }).strict();
 
 // -- Tenant Schemas --
+// -- Tenant Schemas --
 export const createTenantSchema = z.object({
   full_name: z.string().min(1, 'Name is required').max(200),
-  phone: z.string().min(10).max(15),
+  phone: z.string().min(10).max(20),
   email: z.string().email(),
-  gender: z.enum(['male', 'female', 'other']).nullable().optional(),
-  date_of_birth: z.string().nullable().optional(),
+  gender: z.union([z.enum(['male', 'female', 'other']), z.string(), z.literal(''), z.null()]).optional(),
+  date_of_birth: z.union([z.string(), z.literal(''), z.null()]).optional(),
   id_type: z.string().max(50).nullable().optional(),
   id_number: z.string().max(100).nullable().optional(),
+  id_proof_type: z.string().max(50).nullable().optional(),
+  id_proof_number: z.string().max(100).nullable().optional(),
+  college_name: z.string().max(200).nullable().optional(),
   emergency_contact_name: z.string().max(200).nullable().optional(),
-  emergency_contact_phone: z.string().max(15).nullable().optional(),
+  emergency_contact_phone: z.string().max(20).nullable().optional(),
   permanent_address: z.string().max(500).nullable().optional(),
-  room_id: z.string().uuid().nullable().optional(),
-  bed_id: z.string().uuid().nullable().optional(),
-  move_in_date: z.string().optional(),
-  expected_leaving_date: z.string().nullable().optional(),
-  security_deposit_paise: z.number().int().min(0).default(0),
+  room_id: z.union([z.string().uuid(), z.literal(''), z.null()]).optional(),
+  bed_id: z.union([z.string().uuid(), z.literal(''), z.null()]).optional(),
+  move_in_date: z.union([z.string(), z.literal(''), z.null()]).optional(),
+  expected_leaving_date: z.union([z.string(), z.literal(''), z.null()]).optional(),
+  security_deposit: z.coerce.number().min(0).optional(),
+  security_deposit_paise: z.number().int().min(0).optional().default(0),
   notes: z.string().max(1000).nullable().optional(),
-}).strict();
+  status: z.enum(['active', 'notice_given', 'moved_out', 'suspended']).optional(),
+}).passthrough();
 
-export const updateTenantSchema = createTenantSchema.partial().strict();
+export const updateTenantSchema = createTenantSchema.partial().passthrough();
 
 // -- Rent Schemas --
 export const generateRentSchema = z.object({
