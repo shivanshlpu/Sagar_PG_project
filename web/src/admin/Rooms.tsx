@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { DataTable, type Column, Badge, getStatusBadgeVariant, Button, Modal, FormField, Input, Select, ConfirmModal } from '../components/ui';
 import { useToast } from '../components/ui/Toast';
 import { apiGet, apiPost, apiPatch, apiDelete, formatCurrency } from '../lib/api';
-import { Plus, Pencil, Trash2, BedDouble, DoorOpen } from 'lucide-react';
+import { Plus, Pencil, Trash2, BedDouble, DoorOpen, AlertCircle } from 'lucide-react';
 
 interface Room {
   id: string;
@@ -22,10 +22,10 @@ interface Room {
 
 const roomSchema = z.object({
   room_number: z.string().min(1, 'Room number is required'),
-  floor: z.coerce.number().int().min(0),
+  floor: z.coerce.number().int().min(0, 'Floor must be 0 or higher'),
   room_type: z.enum(['single', 'double', 'triple', 'dormitory']),
-  total_beds: z.coerce.number().int().min(1),
-  base_rent_paise: z.coerce.number().int().min(0),
+  total_beds: z.coerce.number().int().min(1, 'Must have at least 1 bed'),
+  base_rent: z.coerce.number().min(0, 'Base rent must be a positive number'),
   notes: z.string().optional(),
 });
 
@@ -38,13 +38,30 @@ export default function AdminRooms() {
   const [editingRoom, setEditingRoom] = React.useState<Room | null>(null);
   const [deleteTarget, setDeleteTarget] = React.useState<Room | null>(null);
   const [showBeds, setShowBeds] = React.useState<Room | null>(null);
+  const [searchQuery, setSearchQuery] = React.useState('');
+  const [selectedFloor, setSelectedFloor] = React.useState<string>('all');
+  const [selectedStatus, setSelectedStatus] = React.useState<string>('all');
   const { showToast } = useToast();
 
-  const { register, handleSubmit, reset, formState: { errors } } = useForm<RoomForm>({
+  const { register, handleSubmit, reset, watch, formState: { errors } } = useForm<RoomForm>({
     resolver: zodResolver(roomSchema),
   });
 
-  React.useEffect(() => { loadRooms(); }, []);
+  const watchedRoomNumber = watch('room_number') || '';
+
+  // Duplicate detection in real-time
+  const duplicateRoom = React.useMemo(() => {
+    if (!watchedRoomNumber.trim()) return null;
+    return rooms.find(
+      (r) =>
+        r.room_number.trim().toLowerCase() === watchedRoomNumber.trim().toLowerCase() &&
+        (!editingRoom || r.id !== editingRoom.id)
+    );
+  }, [watchedRoomNumber, rooms, editingRoom]);
+
+  React.useEffect(() => {
+    loadRooms();
+  }, []);
 
   async function loadRooms() {
     setIsLoading(true);
@@ -57,7 +74,14 @@ export default function AdminRooms() {
 
   function openCreate() {
     setEditingRoom(null);
-    reset({ room_number: '', floor: 0, room_type: 'single', total_beds: 1, base_rent_paise: 0, notes: '' });
+    reset({
+      room_number: '',
+      floor: 1,
+      room_type: 'single',
+      total_beds: 1,
+      base_rent: 0,
+      notes: '',
+    });
     setShowModal(true);
   }
 
@@ -68,15 +92,32 @@ export default function AdminRooms() {
       floor: room.floor,
       room_type: room.room_type as 'single' | 'double' | 'triple' | 'dormitory',
       total_beds: room.total_beds,
-      base_rent_paise: room.base_rent_paise,
+      base_rent: (room.base_rent_paise || 0) / 100,
       notes: room.notes || '',
     });
     setShowModal(true);
   }
 
   async function onSubmit(data: RoomForm) {
+    if (duplicateRoom) {
+      showToast(
+        `Room ${data.room_number} already exists on Floor ${duplicateRoom.floor}. Please use a different room number.`,
+        'error'
+      );
+      return;
+    }
+
+    const payload = {
+      room_number: data.room_number.trim(),
+      floor: data.floor,
+      room_type: data.room_type,
+      total_beds: data.total_beds,
+      base_rent_paise: Math.round(Number(data.base_rent) * 100),
+      notes: data.notes || null,
+    };
+
     if (editingRoom) {
-      const res = await apiPatch(`/rooms/${editingRoom.id}`, data);
+      const res = await apiPatch(`/rooms/${editingRoom.id}`, payload);
       if (res.success) {
         showToast(`Room ${data.room_number} updated`);
         setShowModal(false);
@@ -85,7 +126,7 @@ export default function AdminRooms() {
         showToast(res.error || 'Update failed', 'error');
       }
     } else {
-      const res = await apiPost('/rooms', data);
+      const res = await apiPost('/rooms', payload);
       if (res.success) {
         showToast(`Room ${data.room_number} created`);
         setShowModal(false);
@@ -107,6 +148,26 @@ export default function AdminRooms() {
       showToast(res.error || 'Delete failed', 'error');
     }
   }
+
+  const uniqueFloors = React.useMemo(() => {
+    return Array.from(new Set(rooms.map((r) => r.floor))).sort((a, b) => a - b);
+  }, [rooms]);
+
+  const filteredRooms = React.useMemo(() => {
+    return rooms.filter((room) => {
+      const q = searchQuery.toLowerCase().trim();
+      const matchesSearch =
+        !q ||
+        room.room_number.toLowerCase().includes(q) ||
+        room.room_type.toLowerCase().includes(q) ||
+        (room.notes && room.notes.toLowerCase().includes(q));
+
+      const matchesFloor = selectedFloor === 'all' || String(room.floor) === selectedFloor;
+      const matchesStatus = selectedStatus === 'all' || room.status === selectedStatus;
+
+      return matchesSearch && matchesFloor && matchesStatus;
+    });
+  }, [rooms, searchQuery, selectedFloor, selectedStatus]);
 
   const columns: Column<Room>[] = [
     { key: 'room_number', header: 'Room No.', sortable: true },
@@ -136,16 +197,65 @@ export default function AdminRooms() {
 
   return (
     <div className="page-container">
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
-        <h1 className="page-title" style={{ marginBottom: 0 }}>Rooms</h1>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+        <div>
+          <h1 className="page-title" style={{ marginBottom: '4px' }}>Rooms & Beds</h1>
+          <p style={{ margin: 0, fontSize: 'var(--font-size-sm)', color: 'var(--color-text-secondary)' }}>
+            Manage rooms, floors, bed assignments, and base rents.
+          </p>
+        </div>
         <Button onClick={openCreate}>
           <Plus size={16} /> Add Room
         </Button>
       </div>
 
+      {/* Filter and Search Bar */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', alignItems: 'center', marginBottom: '16px' }}>
+        <div style={{ flex: '1 1 200px', minWidth: '180px', position: 'relative' }}>
+          <Input
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search room (e.g. 101, 202)..."
+          />
+        </div>
+        <div style={{ width: '140px' }}>
+          <Select
+            value={selectedFloor}
+            onChange={(e) => setSelectedFloor(e.target.value)}
+            options={[
+              { value: 'all', label: 'All Floors' },
+              ...uniqueFloors.map((f) => ({ value: String(f), label: `Floor ${f}` })),
+            ]}
+          />
+        </div>
+        <div style={{ width: '140px' }}>
+          <Select
+            value={selectedStatus}
+            onChange={(e) => setSelectedStatus(e.target.value)}
+            options={[
+              { value: 'all', label: 'All Status' },
+              { value: 'available', label: 'Available' },
+              { value: 'full', label: 'Full' },
+            ]}
+          />
+        </div>
+        {(searchQuery || selectedFloor !== 'all' || selectedStatus !== 'all') && (
+          <Button
+            variant="ghost"
+            onClick={() => {
+              setSearchQuery('');
+              setSelectedFloor('all');
+              setSelectedStatus('all');
+            }}
+          >
+            Clear Filters
+          </Button>
+        )}
+      </div>
+
       <DataTable<Room>
         columns={columns}
-        data={rooms}
+        data={filteredRooms}
         isLoading={isLoading}
         onRowClick={(room: Room) => setShowBeds(room)}
         actions={(row: Room) => (
@@ -164,7 +274,9 @@ export default function AdminRooms() {
         emptyState={
           <div style={{ textAlign: 'center', padding: '48px' }}>
             <DoorOpen size={48} style={{ color: 'var(--color-text-muted)', marginBottom: '12px' }} />
-            <p style={{ color: 'var(--color-text-secondary)', marginBottom: '16px' }}>No rooms added yet</p>
+            <p style={{ color: 'var(--color-text-secondary)', marginBottom: '16px' }}>
+              {searchQuery || selectedFloor !== 'all' || selectedStatus !== 'all' ? 'No rooms match your search' : 'No rooms added yet'}
+            </p>
             <Button onClick={openCreate}><Plus size={16} /> Add First Room</Button>
           </div>
         }
@@ -174,20 +286,44 @@ export default function AdminRooms() {
       <Modal
         isOpen={showModal}
         onClose={() => setShowModal(false)}
-        title={editingRoom ? 'Edit Room' : 'Add Room'}
+        title={editingRoom ? `Edit Room ${editingRoom.room_number}` : 'Add New Room'}
         footer={
           <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
             <Button variant="secondary" onClick={() => setShowModal(false)}>Cancel</Button>
-            <Button onClick={handleSubmit(onSubmit)}>{editingRoom ? 'Update' : 'Create'}</Button>
+            <Button onClick={handleSubmit(onSubmit)} disabled={!!duplicateRoom}>
+              {editingRoom ? 'Update Room' : 'Create Room'}
+            </Button>
           </div>
         }
       >
         <FormField label="Room Number" error={errors.room_number?.message} required>
-          <Input {...register('room_number')} placeholder="e.g. 101, A1" error={!!errors.room_number} />
+          <Input {...register('room_number')} placeholder="e.g. 101, 202, 301" error={!!errors.room_number || !!duplicateRoom} />
+          {duplicateRoom && (
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              marginTop: '6px',
+              padding: '6px 10px',
+              backgroundColor: 'rgba(239, 68, 68, 0.08)',
+              border: '1px solid var(--color-danger)',
+              borderRadius: 'var(--radius-sm)',
+              color: 'var(--color-danger)',
+              fontSize: 'var(--font-size-xs)',
+              lineHeight: 1.4,
+            }}>
+              <AlertCircle size={15} style={{ flexShrink: 0 }} />
+              <span>
+                Room <strong>{duplicateRoom.room_number}</strong> already exists on Floor {duplicateRoom.floor} ({duplicateRoom.room_type}, {duplicateRoom.total_beds} beds). Please choose a different number.
+              </span>
+            </div>
+          )}
         </FormField>
+
         <FormField label="Floor" error={errors.floor?.message} required>
-          <Input type="number" {...register('floor')} error={!!errors.floor} />
+          <Input type="number" {...register('floor')} error={!!errors.floor} placeholder="0 for Ground, 1 for 1st..." />
         </FormField>
+
         <FormField label="Room Type" error={errors.room_type?.message} required>
           <Select
             options={[
@@ -200,14 +336,17 @@ export default function AdminRooms() {
             {...register('room_type')}
           />
         </FormField>
+
         <FormField label="Total Beds" error={errors.total_beds?.message} required>
-          <Input type="number" {...register('total_beds')} error={!!errors.total_beds} />
+          <Input type="number" {...register('total_beds')} error={!!errors.total_beds} placeholder="Number of beds in this room" />
         </FormField>
-        <FormField label="Base Rent (in paise)" error={errors.base_rent_paise?.message} required hint="Enter amount in paise. 1000000 = Rs. 10,000">
-          <Input type="number" {...register('base_rent_paise')} error={!!errors.base_rent_paise} />
+
+        <FormField label="Base Rent (₹ / month)" error={errors.base_rent?.message} required hint="Monthly rent per bed or room in Rupees">
+          <Input type="number" {...register('base_rent')} placeholder="e.g. 8000" error={!!errors.base_rent} />
         </FormField>
+
         <FormField label="Notes">
-          <Input {...register('notes')} placeholder="Optional notes" />
+          <Input {...register('notes')} placeholder="e.g. Balcony, AC, Attached Bathroom" />
         </FormField>
       </Modal>
 

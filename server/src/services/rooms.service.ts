@@ -36,10 +36,25 @@ export async function createRoom(
   },
   actor: { id: string; email: string }
 ) {
+  const trimmedNumber = roomData.room_number.trim();
+
+  // Check if room number already exists in this PG
+  const { data: existingRoom } = await supabaseAdmin
+    .from('rooms')
+    .select('id, room_number, floor')
+    .eq('pg_id', pgId)
+    .ilike('room_number', trimmedNumber)
+    .maybeSingle();
+
+  if (existingRoom) {
+    throw new Error(`Room '${trimmedNumber}' already exists on Floor ${existingRoom.floor}. Please use a different room number or edit Room '${trimmedNumber}'.`);
+  }
+
   const { data, error } = await supabaseAdmin
     .from('rooms')
     .insert({
       ...roomData,
+      room_number: trimmedNumber,
       pg_id: pgId,
       occupied_beds: 0,
       status: 'available',
@@ -47,13 +62,18 @@ export async function createRoom(
     .select()
     .single();
 
-  if (error) throw new Error(error.message);
+  if (error) {
+    if (error.code === '23505' || error.message.includes('rooms_pg_id_room_number_key') || error.message.includes('unique constraint')) {
+      throw new Error(`Room '${trimmedNumber}' already exists in your PG. Please use a different room number.`);
+    }
+    throw new Error(error.message);
+  }
 
   // Auto-create beds for the room with pg_id
   const beds = Array.from({ length: roomData.total_beds }, (_, i) => ({
     pg_id: pgId,
     room_id: data.id,
-    bed_number: `${roomData.room_number}-B${i + 1}`,
+    bed_number: `${trimmedNumber}-B${i + 1}`,
     status: 'vacant',
   }));
 
@@ -67,7 +87,7 @@ export async function createRoom(
     action: 'CREATE_ROOM',
     entityType: 'room',
     entityId: data.id,
-    details: { room_number: roomData.room_number },
+    details: { room_number: trimmedNumber },
   });
 
   return getRoom(pgId, data.id);
@@ -79,6 +99,22 @@ export async function updateRoom(
   updates: Record<string, unknown>,
   actor: { id: string; email: string }
 ) {
+  if (updates.room_number) {
+    const trimmedNumber = String(updates.room_number).trim();
+    const { data: existingRoom } = await supabaseAdmin
+      .from('rooms')
+      .select('id, room_number, floor')
+      .eq('pg_id', pgId)
+      .ilike('room_number', trimmedNumber)
+      .neq('id', id)
+      .maybeSingle();
+
+    if (existingRoom) {
+      throw new Error(`Room '${trimmedNumber}' already exists on Floor ${existingRoom.floor}. Please choose a different room number.`);
+    }
+    updates.room_number = trimmedNumber;
+  }
+
   const { data, error } = await supabaseAdmin
     .from('rooms')
     .update({ ...updates, updated_at: new Date().toISOString() })
@@ -87,7 +123,12 @@ export async function updateRoom(
     .select()
     .single();
 
-  if (error) throw new Error(error.message);
+  if (error) {
+    if (error.code === '23505' || error.message.includes('rooms_pg_id_room_number_key') || error.message.includes('unique constraint')) {
+      throw new Error(`Room '${updates.room_number}' already exists in your PG. Please use a different room number.`);
+    }
+    throw new Error(error.message);
+  }
 
   await logAudit({
     pgId,
