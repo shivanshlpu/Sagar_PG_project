@@ -15,6 +15,25 @@ export const loginSchema = z.object({
   password: z.string().min(1, 'Password is required'),
 }).strict();
 
+export const forgotPasswordSchema = z.object({
+  email: z.string().email('Valid email required'),
+}).strict();
+
+export const verifyOtpSchema = z.object({
+  email: z.string().email('Valid email required'),
+  otp: z.string().length(6, 'OTP must be 6 digits'),
+}).strict();
+
+export const resetPasswordSchema = z.object({
+  resetToken: z.string().min(1, 'Reset token is required'),
+  newPassword: z.string().min(8, 'Password must be at least 8 characters'),
+}).strict();
+
+export const changePasswordSchema = z.object({
+  currentPassword: z.string().min(1, 'Current password is required'),
+  newPassword: z.string().min(8, 'New password must be at least 8 characters'),
+}).strict();
+
 // -- PG Schemas --
 export const updatePGSchema = z.object({
   name: z.string().min(1).max(200).optional(),

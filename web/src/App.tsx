@@ -12,6 +12,8 @@ import { LayoutDashboard, MessageSquareWarning, Wifi, Bell, Megaphone } from 'lu
 import Login from './pages/Login';
 import Register from './pages/Register';
 import TenantJoin from './pages/TenantJoin';
+import ForgotPassword from './pages/ForgotPassword';
+import Profile from './pages/Profile';
 
 // Admin pages
 import AdminDashboard from './admin/Dashboard';
@@ -33,7 +35,7 @@ import TenantComplaints from './tenant/Complaints';
 import TenantAnnouncements from './tenant/Announcements';
 import TenantWiFiContacts from './tenant/WiFiContacts';
 import TenantNotifications from './tenant/Notifications';
-import TenantOnboarding from './tenant/TenantOnboarding';
+import { TenantOnboarding } from './tenant/TenantOnboarding';
 import { PWAInstallPrompt } from './components/common/PWAInstallPrompt';
 
 // Protected route wrapper
@@ -214,6 +216,7 @@ function AppRoutes() {
       {/* Public routes */}
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Register />} />
+      <Route path="/forgot-password" element={<ForgotPassword />} />
       <Route path="/join/:code" element={<TenantJoin />} />
 
       {/* Root redirect */}
@@ -248,6 +251,13 @@ function AppRoutes() {
           <Route path="/tenant/announcements" element={<TenantAnnouncements />} />
           <Route path="/tenant/wifi" element={<TenantWiFiContacts />} />
           <Route path="/tenant/notifications" element={<TenantNotifications />} />
+        </Route>
+      </Route>
+
+      {/* Profile route for both roles */}
+      <Route element={<ProtectedRoute allowedRoles={['admin', 'tenant']} />}>
+        <Route element={user?.role === 'admin' ? <AdminLayout /> : <TenantLayout />}>
+          <Route path="/profile" element={<Profile />} />
         </Route>
       </Route>
 

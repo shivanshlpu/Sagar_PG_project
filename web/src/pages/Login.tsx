@@ -86,6 +86,12 @@ export default function Login() {
               />
             </FormField>
 
+            <div style={{ textAlign: 'right', marginTop: '-4px', marginBottom: '8px' }}>
+              <Link to="/forgot-password" style={{ color: 'var(--color-primary)', fontSize: 'var(--font-size-xs)', fontWeight: 500, textDecoration: 'none' }}>
+                Forgot Password?
+              </Link>
+            </div>
+
             <Button type="submit" fullWidth isLoading={isLoading} style={{ marginTop: '8px' }}>
               {isLoading ? 'Signing In...' : 'Sign In'}
             </Button>

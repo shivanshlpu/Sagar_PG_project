@@ -32,6 +32,7 @@ import {
   Languages,
   Calculator,
   IndianRupee,
+  Lock,
 } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 import { useLanguage } from '../context/LanguageContext';
@@ -67,10 +68,10 @@ export default function AdminSettings() {
   const { language, setLanguage, t } = useLanguage();
   const [searchParams, setSearchParams] = useSearchParams();
   const tabParam = searchParams.get('tab');
-  const activeTab: 'wifi' | 'whatsapp' | 'reminders' | 'billing' | 'appearance' =
-    tabParam === 'whatsapp' || tabParam === 'reminders' || tabParam === 'billing' || tabParam === 'appearance' ? tabParam : 'wifi';
+  const activeTab: 'wifi' | 'whatsapp' | 'reminders' | 'billing' | 'appearance' | 'security' =
+    tabParam === 'whatsapp' || tabParam === 'reminders' || tabParam === 'billing' || tabParam === 'appearance' || tabParam === 'security' ? tabParam : 'wifi';
 
-  const setActiveTab = React.useCallback((tab: 'wifi' | 'whatsapp' | 'reminders' | 'billing' | 'appearance') => {
+  const setActiveTab = React.useCallback((tab: 'wifi' | 'whatsapp' | 'reminders' | 'billing' | 'appearance' | 'security') => {
     setSearchParams({ tab }, { replace: true });
   }, [setSearchParams]);
 
@@ -123,6 +124,13 @@ export default function AdminSettings() {
     maintenance_charge: 500,
   });
   const [isSavingBilling, setIsSavingBilling] = React.useState(false);
+
+  // --- Change Password State ---
+  const [currentPwd, setCurrentPwd] = React.useState('');
+  const [newPwd, setNewPwd] = React.useState('');
+  const [confirmPwd, setConfirmPwd] = React.useState('');
+  const [pwdLoading, setPwdLoading] = React.useState(false);
+  const [pwdSuccess, setPwdSuccess] = React.useState(false);
 
   React.useEffect(() => {
     loadWifiSettings();
@@ -454,6 +462,14 @@ export default function AdminSettings() {
               display: 'inline-block',
             }} />
           )}
+        </button>
+
+        <button
+          onClick={() => setActiveTab('security')}
+          style={activeTab === 'security' ? activeTabStyle : inactiveTabStyle}
+        >
+          <Lock size={18} />
+          <span>Security</span>
         </button>
       </div>
 
@@ -1262,6 +1278,97 @@ export default function AdminSettings() {
                 <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>हिंदी भाषा में पोर्टल का उपयोग करें</div>
               </div>
             </div>
+          </Card>
+        </div>
+      )}
+
+      {/* TAB 6: SECURITY — Change Password */}
+      {activeTab === 'security' && (
+        <div>
+          <div style={{ marginBottom: '20px' }}>
+            <h2 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 600 }}>Security</h2>
+            <p style={{ color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-sm)', marginTop: '2px' }}>
+              Change your account password.
+            </p>
+          </div>
+
+          <Card padding="lg" style={{ maxWidth: '500px' }}>
+            <h3 style={{ fontSize: 'var(--font-size-md)', fontWeight: 600, marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Lock size={18} /> Change Password
+            </h3>
+
+            {pwdSuccess && (
+              <div style={{ backgroundColor: 'var(--color-success-light)', color: 'var(--color-success)', padding: '10px 14px', borderRadius: 'var(--radius-md)', fontSize: 'var(--font-size-sm)', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <CheckCircle2 size={16} /> Password changed successfully!
+              </div>
+            )}
+
+            <form onSubmit={async (e) => {
+              e.preventDefault();
+              setPwdSuccess(false);
+
+              if (newPwd.length < 8) {
+                showToast('New password must be at least 8 characters', 'error');
+                return;
+              }
+              if (newPwd !== confirmPwd) {
+                showToast('Passwords do not match', 'error');
+                return;
+              }
+
+              setPwdLoading(true);
+              const res = await apiPost('/auth/change-password', {
+                currentPassword: currentPwd,
+                newPassword: newPwd,
+              });
+              setPwdLoading(false);
+
+              if (res.success) {
+                setPwdSuccess(true);
+                setCurrentPwd('');
+                setNewPwd('');
+                setConfirmPwd('');
+                showToast('Password changed successfully');
+              } else {
+                showToast(res.error || 'Failed to change password', 'error');
+              }
+            }}>
+              <FormField label="Current Password" required>
+                <Input
+                  type="password"
+                  placeholder="Enter current password"
+                  value={currentPwd}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setCurrentPwd(e.target.value)}
+                  required
+                />
+              </FormField>
+
+              <FormField label="New Password" required>
+                <Input
+                  type="password"
+                  placeholder="Minimum 8 characters"
+                  value={newPwd}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewPwd(e.target.value)}
+                  minLength={8}
+                  required
+                />
+              </FormField>
+
+              <FormField label="Confirm New Password" required>
+                <Input
+                  type="password"
+                  placeholder="Re-enter new password"
+                  value={confirmPwd}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfirmPwd(e.target.value)}
+                  minLength={8}
+                  required
+                />
+              </FormField>
+
+              <Button type="submit" fullWidth isLoading={pwdLoading} style={{ marginTop: '8px' }}>
+                {pwdLoading ? 'Changing...' : 'Change Password'}
+              </Button>
+            </form>
           </Card>
         </div>
       )}

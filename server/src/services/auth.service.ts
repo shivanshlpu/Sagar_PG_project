@@ -353,3 +353,145 @@ export async function getMe(userId: string) {
 
   return { ...userData.user, role };
 }
+
+// ── Password Reset (WhatsApp OTP) ──────────────────────────────
+
+import { generateOTP, verifyOTP } from './otp.service';
+import { sendWhatsAppMessage, getWhatsAppStatus } from './whatsapp.service';
+
+/**
+ * Initiate forgot-password flow:
+ *  1. Find the user by email
+ *  2. Look up their phone number from admins or tenants table
+ *  3. Generate OTP and send via WhatsApp
+ */
+export async function forgotPassword(email: string) {
+  // Check WhatsApp is connected
+  const waStatus = getWhatsAppStatus();
+  if (waStatus.status !== 'connected') {
+    throw new Error('WhatsApp service is not connected. Please contact the PG admin.');
+  }
+
+  // Find user in Supabase Auth
+  const { data: listData } = await supabaseAdmin.auth.admin.listUsers({ perPage: 200 });
+  const user = listData?.users.find(u => u.email === email);
+  if (!user) {
+    // Don't reveal whether email exists — return silently
+    return { sent: true, maskedPhone: '******' };
+  }
+
+  const role = user.user_metadata?.role as string;
+  let phone: string | null = null;
+
+  if (role === 'admin') {
+    const { data } = await supabaseAdmin.from('admins').select('phone').eq('user_id', user.id).single();
+    phone = data?.phone || null;
+  } else {
+    const { data } = await supabaseAdmin.from('tenants').select('phone').eq('user_id', user.id).single();
+    phone = data?.phone || null;
+  }
+
+  if (!phone || phone.replace(/\D/g, '').length < 10) {
+    throw new Error('No phone number linked to this account. Contact the PG admin.');
+  }
+
+  const cleanPhone = phone.replace(/\D/g, '');
+  const otp = generateOTP(cleanPhone);
+
+  // Send OTP via WhatsApp
+  const message = `🔐 *Sagar PG — Password Reset*\n\nYour OTP is: *${otp}*\n\nThis code expires in 5 minutes. Do not share it with anyone.`;
+  await sendWhatsAppMessage(cleanPhone, message);
+
+  // Mask phone for frontend display
+  const masked = cleanPhone.slice(0, 2) + '****' + cleanPhone.slice(-4);
+  return { sent: true, maskedPhone: masked };
+}
+
+/**
+ * Verify the OTP and return a short-lived password-reset JWT.
+ */
+export async function verifyOtpAndGetResetToken(email: string, otp: string) {
+  // Find user → phone
+  const { data: listData } = await supabaseAdmin.auth.admin.listUsers({ perPage: 200 });
+  const user = listData?.users.find(u => u.email === email);
+  if (!user) throw new Error('Invalid request');
+
+  const role = user.user_metadata?.role as string;
+  let phone: string | null = null;
+
+  if (role === 'admin') {
+    const { data } = await supabaseAdmin.from('admins').select('phone').eq('user_id', user.id).single();
+    phone = data?.phone || null;
+  } else {
+    const { data } = await supabaseAdmin.from('tenants').select('phone').eq('user_id', user.id).single();
+    phone = data?.phone || null;
+  }
+
+  if (!phone) throw new Error('Invalid request');
+
+  const cleanPhone = phone.replace(/\D/g, '');
+  const valid = verifyOTP(cleanPhone, otp);
+  if (!valid) throw new Error('Invalid OTP. Please try again.');
+
+  // Issue a short-lived reset token (10 min)
+  const resetToken = jwt.sign(
+    { id: user.id, email, type: 'password-reset' },
+    env.JWT_SECRET,
+    { expiresIn: '10m' }
+  );
+
+  return { resetToken };
+}
+
+/**
+ * Reset password using a valid reset token.
+ */
+export async function resetPassword(resetToken: string, newPassword: string) {
+  let decoded: { id: string; type: string };
+  try {
+    decoded = jwt.verify(resetToken, env.JWT_SECRET) as any;
+  } catch {
+    throw new Error('Reset link has expired. Please request a new OTP.');
+  }
+
+  if (decoded.type !== 'password-reset') {
+    throw new Error('Invalid reset token.');
+  }
+
+  const { error } = await supabaseAdmin.auth.admin.updateUserById(decoded.id, {
+    password: newPassword,
+  });
+
+  if (error) throw new Error('Failed to update password. Please try again.');
+  return { success: true };
+}
+
+/**
+ * Change password for an authenticated user (requires current password).
+ */
+export async function changePassword(userId: string, currentPassword: string, newPassword: string) {
+  // Get user email
+  const { data: userData, error: userError } = await supabaseAdmin.auth.admin.getUserById(userId);
+  if (userError || !userData?.user?.email) throw new Error('User not found');
+
+  // Verify current password by attempting sign-in
+  const authClient = createClient(env.SUPABASE_URL, env.SUPABASE_ANON_KEY, {
+    auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+  });
+
+  const { error: signInError } = await authClient.auth.signInWithPassword({
+    email: userData.user.email,
+    password: currentPassword,
+  });
+
+  if (signInError) throw new Error('Current password is incorrect');
+
+  // Update to new password
+  const { error: updateError } = await supabaseAdmin.auth.admin.updateUserById(userId, {
+    password: newPassword,
+  });
+
+  if (updateError) throw new Error('Failed to update password');
+  return { success: true };
+}
+
