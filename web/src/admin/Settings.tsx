@@ -33,6 +33,8 @@ import {
   Calculator,
   IndianRupee,
   Lock,
+  Landmark,
+  Upload,
 } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 import { useLanguage } from '../context/LanguageContext';
@@ -68,10 +70,10 @@ export default function AdminSettings() {
   const { language, setLanguage, t } = useLanguage();
   const [searchParams, setSearchParams] = useSearchParams();
   const tabParam = searchParams.get('tab');
-  const activeTab: 'wifi' | 'whatsapp' | 'reminders' | 'billing' | 'appearance' | 'security' =
-    tabParam === 'whatsapp' || tabParam === 'reminders' || tabParam === 'billing' || tabParam === 'appearance' || tabParam === 'security' ? tabParam : 'wifi';
+  const activeTab: 'wifi' | 'whatsapp' | 'reminders' | 'billing' | 'banking' | 'appearance' | 'security' =
+    tabParam === 'whatsapp' || tabParam === 'reminders' || tabParam === 'billing' || tabParam === 'banking' || tabParam === 'appearance' || tabParam === 'security' ? tabParam : 'wifi';
 
-  const setActiveTab = React.useCallback((tab: 'wifi' | 'whatsapp' | 'reminders' | 'billing' | 'appearance' | 'security') => {
+  const setActiveTab = React.useCallback((tab: 'wifi' | 'whatsapp' | 'reminders' | 'billing' | 'banking' | 'appearance' | 'security') => {
     setSearchParams({ tab }, { replace: true });
   }, [setSearchParams]);
 
@@ -128,6 +130,25 @@ export default function AdminSettings() {
   });
   const [isSavingBilling, setIsSavingBilling] = React.useState(false);
 
+  // --- Banking & Payment QR State ---
+  const [banking, setBanking] = React.useState<{
+    upi_id: string;
+    bank_name: string;
+    account_number: string;
+    ifsc_code: string;
+    account_holder_name: string;
+    payment_qr: string | null;
+  }>({
+    upi_id: '',
+    bank_name: '',
+    account_number: '',
+    ifsc_code: '',
+    account_holder_name: '',
+    payment_qr: null,
+  });
+  const [isSavingBanking, setIsSavingBanking] = React.useState(false);
+  const qrFileInputRef = React.useRef<HTMLInputElement | null>(null);
+
   // --- Change Password State ---
   const [currentPwd, setCurrentPwd] = React.useState('');
   const [newPwd, setNewPwd] = React.useState('');
@@ -140,6 +161,7 @@ export default function AdminSettings() {
     loadWhatsAppStatus();
     loadReminderSettings();
     loadBillingSettings();
+    loadBankingSettings();
   }, []);
 
   // Poll WhatsApp status while in pairing mode or when looking at WhatsApp tab and not yet connected
@@ -400,6 +422,95 @@ export default function AdminSettings() {
     setIsSavingBilling(false);
   }
 
+  // --- Banking & Payment QR ---
+  async function loadBankingSettings() {
+    const res = await apiGet<{
+      upi_id: string;
+      bank_name: string;
+      account_number: string;
+      ifsc_code: string;
+      account_holder_name: string;
+      payment_qr: string | null;
+    }>('/settings/banking');
+    if (res.success && res.data) {
+      setBanking({
+        upi_id: res.data.upi_id || '',
+        bank_name: res.data.bank_name || '',
+        account_number: res.data.account_number || '',
+        ifsc_code: res.data.ifsc_code || '',
+        account_holder_name: res.data.account_holder_name || '',
+        payment_qr: res.data.payment_qr || null,
+      });
+    }
+  }
+
+  async function handleSaveBanking() {
+    setIsSavingBanking(true);
+    const res = await apiPatch<{
+      upi_id: string;
+      bank_name: string;
+      account_number: string;
+      ifsc_code: string;
+      account_holder_name: string;
+      payment_qr: string | null;
+    }>('/settings/banking', {
+      upi_id: banking.upi_id.trim() || null,
+      bank_name: banking.bank_name.trim() || null,
+      account_number: banking.account_number.trim() || null,
+      ifsc_code: banking.ifsc_code.trim().toUpperCase() || null,
+      account_holder_name: banking.account_holder_name.trim() || null,
+      payment_qr: banking.payment_qr,
+    });
+    if (res.success) {
+      showToast('Banking details & Payment QR saved! WhatsApp reminders will now include these details.');
+      if (res.data) setBanking(res.data);
+    } else {
+      showToast(res.error || 'Failed to save banking details', 'error');
+    }
+    setIsSavingBanking(false);
+  }
+
+  function handleQrFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      showToast('Please select a valid image file (PNG, JPG, WEBP)', 'error');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let width = img.width;
+        let height = img.height;
+        const maxDim = 600;
+        if (width > maxDim || height > maxDim) {
+          if (width > height) {
+            height = Math.round((height * maxDim) / width);
+            width = maxDim;
+          } else {
+            width = Math.round((width * maxDim) / height);
+            height = maxDim;
+          }
+        }
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, width, height);
+          ctx.drawImage(img, 0, 0, width, height);
+          const compressed = canvas.toDataURL('image/jpeg', 0.85);
+          setBanking((prev) => ({ ...prev, payment_qr: compressed }));
+          showToast('Payment QR selected! Click "Save Banking Details" to apply.');
+        }
+      };
+      img.src = event.target?.result as string;
+    };
+    reader.readAsDataURL(file);
+  }
+
   return (
     <div className="page-container" style={{ maxWidth: '1080px', margin: '0 auto' }}>
       {/* Header */}
@@ -457,6 +568,26 @@ export default function AdminSettings() {
         >
           <Calculator size={18} />
           <span>Billing & Rates</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('banking')}
+          style={activeTab === 'banking' ? activeTabStyle : inactiveTabStyle}
+        >
+          <Landmark size={18} />
+          <span>Banking & QR Code</span>
+          {banking.payment_qr && (
+            <span
+              style={{
+                width: '7px',
+                height: '7px',
+                borderRadius: '50%',
+                backgroundColor: 'var(--color-success)',
+                display: 'inline-block',
+              }}
+              title="Payment QR Active"
+            />
+          )}
         </button>
 
         <button
@@ -1061,6 +1192,250 @@ export default function AdminSettings() {
               </Button>
             </div>
           </Card>
+        </div>
+      )}
+
+      {/* TAB: BANKING & PAYMENT QR */}
+      {activeTab === 'banking' && (
+        <div>
+          <div style={{ marginBottom: '20px' }}>
+            <h2 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 600 }}>Banking & Payment QR Settings</h2>
+            <p style={{ color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-sm)', marginTop: '2px' }}>
+              Configure your UPI ID, bank account, and Payment QR code. These will be automatically attached to WhatsApp rent reminders & invoices, and displayed on the resident portal for payment and UTR verification.
+            </p>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: '24px', alignItems: 'start' }}>
+            {/* Left Card: Bank & UPI Form */}
+            <Card padding="lg">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
+                <div style={{
+                  width: '36px',
+                  height: '36px',
+                  borderRadius: '8px',
+                  backgroundColor: 'var(--color-primary-light)',
+                  color: 'var(--color-primary)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}>
+                  <Landmark size={20} />
+                </div>
+                <div>
+                  <h3 style={{ fontSize: 'var(--font-size-md)', fontWeight: 600 }}>PG Bank & UPI Details</h3>
+                  <p style={{ color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-xs)' }}>
+                    Payment options presented to residents
+                  </p>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                <FormField label="UPI ID / VPA">
+                  <Input
+                    placeholder="e.g. sagarpg@okaxis or 9876543210@upi"
+                    value={banking.upi_id}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setBanking((prev) => ({ ...prev, upi_id: e.target.value }))}
+                  />
+                  <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)', marginTop: '4px' }}>
+                    Residents can copy this UPI ID to pay instantly from GPay, PhonePe, or Paytm.
+                  </span>
+                </FormField>
+
+                <FormField label="Bank Name">
+                  <Input
+                    placeholder="e.g. HDFC Bank, State Bank of India"
+                    value={banking.bank_name}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setBanking((prev) => ({ ...prev, bank_name: e.target.value }))}
+                  />
+                </FormField>
+
+                <FormField label="Account Number">
+                  <Input
+                    placeholder="e.g. 50100456789012"
+                    value={banking.account_number}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setBanking((prev) => ({ ...prev, account_number: e.target.value }))}
+                  />
+                </FormField>
+
+                <FormField label="IFSC Code">
+                  <Input
+                    placeholder="e.g. HDFC0001234"
+                    value={banking.ifsc_code}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setBanking((prev) => ({ ...prev, ifsc_code: e.target.value.toUpperCase() }))}
+                    style={{ textTransform: 'uppercase' }}
+                  />
+                </FormField>
+
+                <FormField label="Beneficiary / Account Holder Name">
+                  <Input
+                    placeholder="e.g. Sagar PG Accommodations"
+                    value={banking.account_holder_name}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setBanking((prev) => ({ ...prev, account_holder_name: e.target.value }))}
+                  />
+                </FormField>
+
+                <div style={{ marginTop: '12px' }}>
+                  <Button onClick={handleSaveBanking} isLoading={isSavingBanking} fullWidth>
+                    <Check size={16} /> Save Banking Details
+                  </Button>
+                </div>
+              </div>
+            </Card>
+
+            {/* Right Card: Payment QR Code & Live WhatsApp Preview */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              <Card padding="lg">
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <div style={{
+                      width: '36px',
+                      height: '36px',
+                      borderRadius: '8px',
+                      backgroundColor: 'var(--color-primary-light)',
+                      color: 'var(--color-primary)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}>
+                      <QrCode size={20} />
+                    </div>
+                    <div>
+                      <h3 style={{ fontSize: 'var(--font-size-md)', fontWeight: 600 }}>Payment QR Code</h3>
+                      <p style={{ color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-xs)' }}>
+                        Attached to WhatsApp rent reminders & bills
+                      </p>
+                    </div>
+                  </div>
+                  {banking.payment_qr ? (
+                    <Badge variant="success">Active</Badge>
+                  ) : (
+                    <Badge variant="neutral">No QR Uploaded</Badge>
+                  )}
+                </div>
+
+                <input
+                  type="file"
+                  ref={qrFileInputRef}
+                  onChange={handleQrFileUpload}
+                  accept="image/png, image/jpeg, image/webp"
+                  style={{ display: 'none' }}
+                />
+
+                {banking.payment_qr ? (
+                  <div style={{ textAlign: 'center', padding: '16px', backgroundColor: 'var(--color-bg-surface-alt)', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)' }}>
+                    <div style={{
+                      display: 'inline-block',
+                      padding: '12px',
+                      backgroundColor: '#ffffff',
+                      borderRadius: 'var(--radius-lg)',
+                      boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
+                      marginBottom: '16px',
+                    }}>
+                      <img
+                        src={banking.payment_qr}
+                        alt="Payment QR Code"
+                        style={{ width: '200px', height: '200px', objectFit: 'contain', display: 'block', borderRadius: '4px' }}
+                      />
+                    </div>
+                    <div style={{ display: 'flex', gap: '10px', justifyContent: 'center', flexWrap: 'wrap' }}>
+                      <Button size="sm" variant="secondary" onClick={() => qrFileInputRef.current?.click()}>
+                        <Upload size={14} /> Change QR Image
+                      </Button>
+                      <Button size="sm" variant="danger" onClick={() => setBanking((prev) => ({ ...prev, payment_qr: null }))}>
+                        <Trash2 size={14} /> Remove QR
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div
+                    onClick={() => qrFileInputRef.current?.click()}
+                    style={{
+                      padding: '36px 20px',
+                      textAlign: 'center',
+                      border: '2px dashed var(--color-border)',
+                      borderRadius: 'var(--radius-lg)',
+                      cursor: 'pointer',
+                      backgroundColor: 'var(--color-bg-surface-alt)',
+                      transition: 'all 150ms ease',
+                    }}
+                  >
+                    <div style={{
+                      width: '48px',
+                      height: '48px',
+                      borderRadius: '50%',
+                      backgroundColor: 'var(--color-primary-light)',
+                      color: 'var(--color-primary)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      margin: '0 auto 12px',
+                    }}>
+                      <Upload size={22} />
+                    </div>
+                    <div style={{ fontWeight: 600, fontSize: 'var(--font-size-sm)', marginBottom: '4px' }}>
+                      Click to Upload Payment QR Code
+                    </div>
+                    <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', maxWidth: '300px', margin: '0 auto' }}>
+                      Upload your GPay, PhonePe, Paytm, or BHIM QR code image. PNG, JPG or WEBP accepted.
+                    </div>
+                  </div>
+                )}
+              </Card>
+
+              {/* WhatsApp Message Preview Card */}
+              <Card padding="lg" style={{ backgroundColor: '#0B141A', color: '#E9EDEF', border: 'none', borderRadius: 'var(--radius-lg)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+                  <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#25D366' }} />
+                  <span style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.5px', color: '#8696A0', fontWeight: 600 }}>
+                    WhatsApp Tenant Reminder Simulation
+                  </span>
+                </div>
+
+                <div style={{
+                  backgroundColor: '#202C33',
+                  borderRadius: '8px',
+                  padding: '12px 14px',
+                  fontSize: '13px',
+                  lineHeight: '1.6',
+                  color: '#D1D7DB',
+                  boxShadow: '0 1px 2px rgba(0,0,0,0.3)',
+                }}>
+                  {banking.payment_qr && (
+                    <div style={{ marginBottom: '10px', textAlign: 'center' }}>
+                      <img
+                        src={banking.payment_qr}
+                        alt="QR Attachment"
+                        style={{ width: '130px', height: '130px', objectFit: 'contain', borderRadius: '6px', backgroundColor: '#ffffff', padding: '4px' }}
+                      />
+                      <div style={{ fontSize: '10px', color: '#8696A0', marginTop: '4px' }}>[Attached Image]</div>
+                    </div>
+                  )}
+                  <p style={{ margin: '0 0 6px', fontWeight: 600, color: '#FFFFFF' }}>🔔 Sagar PG — Rent Payment Reminder</p>
+                  <p style={{ margin: '0 0 6px' }}>Dear Resident,</p>
+                  <p style={{ margin: '0 0 6px' }}>This is a friendly reminder that your rent is due.</p>
+                  <p style={{ margin: '0 0 6px' }}>💰 <strong>Amount Due:</strong> ₹8,500<br />📅 <strong>Due Date:</strong> 05-10-2026</p>
+                  <div style={{ borderTop: '1px solid #2A3942', paddingTop: '6px', margin: '6px 0' }}>
+                    <strong>Payment Options:</strong><br />
+                    {banking.upi_id ? `• UPI ID: ${banking.upi_id}` : '• UPI ID: [Configured above]'}<br />
+                    {banking.account_number ? (
+                      <>
+                        • Bank: {banking.bank_name || 'Bank'}<br />
+                        • Account No: {banking.account_number}<br />
+                        • IFSC: {banking.ifsc_code || 'IFSC'}<br />
+                        {banking.account_holder_name && <>• Name: {banking.account_holder_name}<br /></>}
+                      </>
+                    ) : null}
+                    {banking.payment_qr && (
+                      <span style={{ color: '#25D366' }}>📸 Payment QR code is attached above. Scan & pay via any UPI app.<br /></span>
+                    )}
+                  </div>
+                  <p style={{ margin: '6px 0 0', fontSize: '11px', color: '#8696A0' }}>
+                    After paying, enter your UTR / Reference ID in the resident portal so we can verify and mark it as paid.
+                  </p>
+                </div>
+              </Card>
+            </div>
+          </div>
         </div>
       )}
 

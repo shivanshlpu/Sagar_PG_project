@@ -414,6 +414,7 @@ interface QueuedMessage {
   id: string;
   jid: string;
   text: string;
+  imageBuffer?: Buffer | null;
   resolve: () => void;
   reject: (err: Error) => void;
   enqueuedAt: number;
@@ -424,6 +425,23 @@ let isProcessingQueue = false;
 
 // Max 3 messages per second = 350ms minimum gap between consecutive messages
 const MESSAGE_INTERVAL_MS = 350;
+
+/**
+ * Decodes a base64 Data URL (e.g. data:image/png;base64,...) or raw base64 string into a Buffer.
+ */
+export function decodeBase64Image(dataOrUrl: string): Buffer | null {
+  try {
+    if (!dataOrUrl || typeof dataOrUrl !== 'string') return null;
+    const matches = dataOrUrl.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+    if (matches && matches.length === 3) {
+      return Buffer.from(matches[2], 'base64');
+    }
+    return Buffer.from(dataOrUrl, 'base64');
+  } catch (e: any) {
+    console.warn('[WhatsApp] Failed to decode base64 image:', e?.message);
+    return null;
+  }
+}
 
 async function processMessageQueue(): Promise<void> {
   if (isProcessingQueue) return;
@@ -438,8 +456,21 @@ async function processMessageQueue(): Promise<void> {
         throw new Error('WhatsApp service is not connected');
       }
 
-      console.log(`[WhatsApp Queue] Sending to ${item.jid} (${messageQueue.length} pending in queue)`);
-      await sock.sendMessage(item.jid, { text: item.text });
+      console.log(`[WhatsApp Queue] Sending to ${item.jid} (${messageQueue.length} pending in queue, hasImage: ${Boolean(item.imageBuffer)})`);
+      if (item.imageBuffer) {
+        try {
+          await sock.sendMessage(item.jid, {
+            image: item.imageBuffer,
+            caption: item.text,
+          });
+        } catch (imgErr: any) {
+          console.warn(`[WhatsApp Queue] Failed to send image to ${item.jid}, falling back to text:`, imgErr.message);
+          await sock.sendMessage(item.jid, { text: item.text });
+        }
+      } else {
+        await sock.sendMessage(item.jid, { text: item.text });
+      }
+
       console.log(`[WhatsApp Queue] Successfully sent to ${item.jid}`);
       item.resolve();
     } catch (err: any) {
@@ -456,7 +487,11 @@ async function processMessageQueue(): Promise<void> {
   isProcessingQueue = false;
 }
 
-export async function sendWhatsAppMessage(phone: string, text: string): Promise<void> {
+export async function sendWhatsAppMessage(
+  phone: string,
+  text: string,
+  options?: { imageBuffer?: Buffer | null }
+): Promise<void> {
   if (connectionStatus !== 'connected' || !sock) {
     throw new Error('WhatsApp service is not connected. Please ensure WhatsApp is connected in Settings.');
   }
@@ -469,6 +504,7 @@ export async function sendWhatsAppMessage(phone: string, text: string): Promise<
       id: Math.random().toString(36).substring(2, 9),
       jid,
       text,
+      imageBuffer: options?.imageBuffer || null,
       resolve,
       reject,
       enqueuedAt: Date.now(),
@@ -479,3 +515,4 @@ export async function sendWhatsAppMessage(phone: string, text: string): Promise<
     });
   });
 }
+

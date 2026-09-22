@@ -58,19 +58,29 @@ export async function submitPayment(
     amount_paise: number;
     payment_method: string;
     notes?: string | null;
+    utr_id?: string | null;
+    reference_id?: string | null;
   },
   screenshotPath?: string | null
 ) {
+  const { utr_id, reference_id, notes, ...rest } = paymentData;
+  const utr = (utr_id || reference_id || '').trim();
+  let finalNotes = notes?.trim() || null;
+  if (utr) {
+    finalNotes = finalNotes ? `UTR: ${utr} | ${finalNotes}` : `UTR: ${utr}`;
+  }
+
   const { data, error } = await supabaseAdmin
     .from('payments')
     .insert({
       pg_id: pgId,
       tenant_id: tenantId,
-      ...paymentData,
+      ...rest,
+      notes: finalNotes,
       screenshot_path: screenshotPath || null,
       status: 'submitted',
     })
-    .select()
+    .select('*, tenant:tenants(full_name, phone, email)')
     .single();
 
   if (error) throw new Error(error.message);

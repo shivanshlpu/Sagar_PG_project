@@ -29,8 +29,16 @@ router.get('/', async (req: Request, res: Response) => {
 // POST /payments [Tenant]
 router.post('/', authorize('tenant'), paymentLimiter, upload.single('screenshot'), async (req: Request, res: Response) => {
   try {
-    // Parse the JSON fields from form data
-    const paymentData = submitPaymentSchema.parse(JSON.parse(req.body.data || '{}'));
+    // Parse the JSON fields from form data or direct JSON body
+    let rawData = req.body;
+    if (typeof req.body.data === 'string') {
+      try {
+        rawData = JSON.parse(req.body.data);
+      } catch {
+        rawData = {};
+      }
+    }
+    const paymentData = submitPaymentSchema.parse(rawData);
     let screenshotPath: string | null = null;
 
     if (req.file) {

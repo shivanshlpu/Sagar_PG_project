@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import * as settingsService from '../services/settings.service';
 import { authenticate, authorize, requirePg } from '../middleware/auth';
 import { validate } from '../middleware/validate';
-import { updateWifiSchema, updateRemindersSchema, createContactSchema, updateContactSchema } from '../schemas';
+import { updateWifiSchema, updateRemindersSchema, createContactSchema, updateContactSchema, updateBankingSchema } from '../schemas';
 
 const router = Router();
 
@@ -112,5 +112,27 @@ router.patch('/settings/billing', authorize('admin'), async (req: Request, res: 
   }
 });
 
+// --- Banking & Payment QR ---
+// GET /settings/banking [Admin/Tenant]
+router.get('/settings/banking', async (req: Request, res: Response) => {
+  try {
+    const data = await settingsService.getBankingSettings(req.user!.pgId);
+    res.json({ success: true, data });
+  } catch (err) {
+    res.status(400).json({ success: false, error: (err as Error).message });
+  }
+});
+
+// PATCH /settings/banking [Admin]
+router.patch('/settings/banking', authorize('admin'), validate(updateBankingSchema), async (req: Request, res: Response) => {
+  try {
+    const data = await settingsService.updateBankingSettings(req.user!.pgId, req.body, { id: req.user!.id, email: req.user!.email });
+    res.json({ success: true, data });
+  } catch (err) {
+    res.status(400).json({ success: false, error: (err as Error).message });
+  }
+});
+
 export default router;
+
 

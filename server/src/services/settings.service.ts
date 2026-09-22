@@ -275,3 +275,95 @@ export async function deleteContact(
   });
 }
 
+export interface BankingSettings {
+  upi_id: string;
+  bank_name: string;
+  account_number: string;
+  ifsc_code: string;
+  account_holder_name: string;
+  payment_qr: string | null;
+}
+
+export async function getBankingSettings(pgId: string): Promise<BankingSettings> {
+  const { data: pg, error: pgError } = await supabaseAdmin
+    .from('pgs')
+    .select('upi_id, bank_name, account_number, ifsc_code, account_holder_name')
+    .eq('id', pgId)
+    .maybeSingle();
+
+  if (pgError) {
+    console.error('getBankingSettings pg error:', pgError);
+  }
+
+  const { data: qrData } = await supabaseAdmin
+    .from('settings')
+    .select('value')
+    .eq('key', `payment_qr_${pgId}`)
+    .maybeSingle();
+
+  let paymentQr: string | null = null;
+  if (qrData?.value) {
+    paymentQr = typeof qrData.value === 'string' ? qrData.value : (qrData.value.qr || qrData.value.url || null);
+  }
+
+  return {
+    upi_id: pg?.upi_id || '',
+    bank_name: pg?.bank_name || '',
+    account_number: pg?.account_number || '',
+    ifsc_code: pg?.ifsc_code || '',
+    account_holder_name: pg?.account_holder_name || '',
+    payment_qr: paymentQr,
+  };
+}
+
+export async function updateBankingSettings(
+  pgId: string,
+  settings: Partial<BankingSettings>,
+  actor: { id: string; email: string }
+): Promise<BankingSettings> {
+  const pgUpdates: Record<string, any> = {};
+  if (settings.upi_id !== undefined) pgUpdates.upi_id = settings.upi_id ? settings.upi_id.trim() : null;
+  if (settings.bank_name !== undefined) pgUpdates.bank_name = settings.bank_name ? settings.bank_name.trim() : null;
+  if (settings.account_number !== undefined) pgUpdates.account_number = settings.account_number ? settings.account_number.trim() : null;
+  if (settings.ifsc_code !== undefined) pgUpdates.ifsc_code = settings.ifsc_code ? settings.ifsc_code.trim().toUpperCase() : null;
+  if (settings.account_holder_name !== undefined) pgUpdates.account_holder_name = settings.account_holder_name ? settings.account_holder_name.trim() : null;
+
+  if (Object.keys(pgUpdates).length > 0) {
+    const { error: pgError } = await supabaseAdmin
+      .from('pgs')
+      .update({ ...pgUpdates, updated_at: new Date().toISOString() })
+      .eq('id', pgId);
+
+    if (pgError) throw new Error(pgError.message);
+  }
+
+  if (settings.payment_qr !== undefined) {
+    if (settings.payment_qr) {
+      await supabaseAdmin
+        .from('settings')
+        .upsert({
+          key: `payment_qr_${pgId}`,
+          value: { qr: settings.payment_qr, updated_at: new Date().toISOString() },
+          updated_at: new Date().toISOString(),
+        }, { onConflict: 'key' });
+    } else {
+      await supabaseAdmin
+        .from('settings')
+        .delete()
+        .eq('key', `payment_qr_${pgId}`);
+    }
+  }
+
+  await logAudit({
+    pgId,
+    actorId: actor.id,
+    actorEmail: actor.email,
+    action: 'UPDATE_BANKING_SETTINGS',
+    entityType: 'settings',
+    entityId: `banking_${pgId}`,
+    details: { ...pgUpdates, has_qr: Boolean(settings.payment_qr) },
+  });
+
+  return getBankingSettings(pgId);
+}
+

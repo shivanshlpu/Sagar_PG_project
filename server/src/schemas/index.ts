@@ -154,6 +154,8 @@ export const submitPaymentSchema = z.object({
   amount_paise: z.number().int().min(1, 'Amount must be positive'),
   payment_method: z.enum(['cash', 'upi', 'bank_transfer', 'card', 'other']),
   notes: z.string().max(1000).nullable().optional(),
+  utr_id: z.string().max(100).nullable().optional(),
+  reference_id: z.string().max(100).nullable().optional(),
 }).strict();
 
 export const verifyPaymentSchema = z.object({
@@ -229,6 +231,16 @@ export const updateRemindersSchema = z.object({
   late_fee_grace_days: z.number().int().min(0).max(30),
   late_fee_paise: z.number().int().min(0),
   electricity_reminder_enabled: z.boolean(),
+}).strict();
+
+// -- Banking Schemas --
+export const updateBankingSchema = z.object({
+  upi_id: z.string().max(100).nullable().optional(),
+  bank_name: z.string().max(100).nullable().optional(),
+  account_number: z.string().max(50).nullable().optional(),
+  ifsc_code: z.string().max(20).nullable().optional(),
+  account_holder_name: z.string().max(200).nullable().optional(),
+  payment_qr: z.string().nullable().optional(),
 }).strict();
 
 // -- Contact Schemas --

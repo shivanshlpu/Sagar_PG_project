@@ -1,6 +1,6 @@
 import { supabaseAdmin } from '../config/supabase';
 import { cache } from '../config/redis';
-import { sendWhatsAppMessage, getWhatsAppStatus } from './whatsapp.service';
+import { sendWhatsAppMessage, getWhatsAppStatus, decodeBase64Image } from './whatsapp.service';
 import { createNotification } from './notifications.service';
 import { getReminderSettings } from './settings.service';
 import { formatDateDMY, formatMonthMY } from '../utils/date';
@@ -29,7 +29,7 @@ export async function checkAndSendRentReminders(targetPgId?: string): Promise<{
   const currentDay = now.getDate();
 
   // 1. Fetch PGs to process
-  let pgQuery = supabaseAdmin.from('pgs').select('id, name, upi_id, bank_name, account_number, ifsc_code, phone');
+  let pgQuery = supabaseAdmin.from('pgs').select('id, name, upi_id, bank_name, account_number, ifsc_code, account_holder_name, phone');
   if (targetPgId) {
     pgQuery = pgQuery.eq('id', targetPgId);
   }
@@ -46,9 +46,18 @@ export async function checkAndSendRentReminders(targetPgId?: string): Promise<{
   let totalSkippedNoPhone = 0;
 
   for (const pg of pgs) {
-    // 2. Fetch reminder settings for this PG
+    // 2. Fetch reminder settings & payment QR for this PG
     const reminderSettings = await getReminderSettings(pg.id);
     const rentReminderDay = reminderSettings.rent_reminder_day || 1;
+
+    const { data: qrData } = await supabaseAdmin
+      .from('settings')
+      .select('value')
+      .eq('key', `payment_qr_${pg.id}`)
+      .maybeSingle();
+
+    const paymentQrStr = qrData?.value ? (typeof qrData.value === 'string' ? qrData.value : (qrData.value.qr || qrData.value.url || null)) : null;
+    const qrBuffer = paymentQrStr ? decodeBase64Image(paymentQrStr) : null;
 
     // 3. Find pending or overdue rent records
     // A record is eligible if status is 'pending' or 'overdue' and due_date <= today
@@ -109,6 +118,22 @@ export async function checkAndSendRentReminders(targetPgId?: string): Promise<{
       const dueDateFormatted = formatDateDMY(record.due_date);
       const monthFormatted = formatMonthMY(record.month);
 
+      let paymentDetails = '';
+      if (pg.upi_id) {
+        paymentDetails += `• UPI ID: *${pg.upi_id}*\n`;
+      }
+      if (pg.account_number) {
+        paymentDetails += `• Bank: *${pg.bank_name || 'Bank'}*\n`;
+        paymentDetails += `• Account No: *${pg.account_number}*\n`;
+        paymentDetails += `• IFSC: *${pg.ifsc_code || 'N/A'}*\n`;
+        if (pg.account_holder_name) {
+          paymentDetails += `• Name: *${pg.account_holder_name}*\n`;
+        }
+      }
+      if (qrBuffer) {
+        paymentDetails += `📸 *Payment QR code is attached above. Scan & pay via any UPI app.*\n`;
+      }
+
       const reminderMessage =
         `🔔 *${pg.name} — Rent Payment Reminder*\n\n` +
         `Dear *${tenant.full_name}*,\n\n` +
@@ -116,17 +141,16 @@ export async function checkAndSendRentReminders(targetPgId?: string): Promise<{
         `💰 *Amount Due*: ₹${formattedAmount}\n` +
         `📅 *Due Date*: ${dueDateFormatted}\n` +
         `🏠 *Room*: ${room?.room_number || 'Assigned Room'}\n\n` +
-        `*Payment Options*:\n` +
-        (pg.upi_id ? `• UPI ID: *${pg.upi_id}*\n` : '') +
-        (pg.account_number ? `• Account: *${pg.account_number}* (${pg.bank_name || 'Bank'})\n• IFSC: *${pg.ifsc_code || 'N/A'}*\n` : '') +
-        `\nPlease complete the payment and share the screenshot in the portal.\n_If you have already paid, kindly ignore this message._`;
+        (paymentDetails ? `*Payment Details*:\n${paymentDetails}\n` : '') +
+        `After paying, enter your UTR / Reference ID in the resident portal so we can verify and mark it as paid.\n` +
+        `_If you have already paid, kindly ignore this message._`;
 
       // Schedule staggered dispatch
       setTimeout(async () => {
         try {
           if (waStatus.status === 'connected') {
-            await sendWhatsAppMessage(tenantPhone, reminderMessage);
-            console.log(`[Reminders] WhatsApp reminder sent to ${tenant.full_name} (${tenantPhone}) for ${monthFormatted}`);
+            await sendWhatsAppMessage(tenantPhone, reminderMessage, { imageBuffer: qrBuffer });
+            console.log(`[Reminders] WhatsApp reminder sent to ${tenant.full_name} (${tenantPhone}) for ${monthFormatted} (hasQR: ${Boolean(qrBuffer)})`);
           }
 
           // In-app notification for the tenant

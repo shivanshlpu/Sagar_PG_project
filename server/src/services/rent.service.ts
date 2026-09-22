@@ -1,7 +1,7 @@
 import { supabaseAdmin } from '../config/supabase';
 import { logAudit } from './auditLog.service';
 import { getBillingSettings } from './settings.service';
-import { sendWhatsAppMessage } from './whatsapp.service';
+import { sendWhatsAppMessage, decodeBase64Image } from './whatsapp.service';
 import { formatDateDMY, formatMonthMY } from '../utils/date';
 
 export async function listRentRecords(
@@ -370,9 +370,18 @@ export async function sendRentBillWhatsApp(pgId: string, rentRecordId: string) {
 
   const { data: pg } = await supabaseAdmin
     .from('pgs')
-    .select('name, address, phone')
+    .select('name, address, phone, upi_id, bank_name, account_number, ifsc_code, account_holder_name')
     .eq('id', pgId)
     .single();
+
+  const { data: qrData } = await supabaseAdmin
+    .from('settings')
+    .select('value')
+    .eq('key', `payment_qr_${pgId}`)
+    .maybeSingle();
+
+  const paymentQrStr = qrData?.value ? (typeof qrData.value === 'string' ? qrData.value : (qrData.value.qr || qrData.value.url || null)) : null;
+  const qrBuffer = paymentQrStr ? decodeBase64Image(paymentQrStr) : null;
 
   const pgName = pg?.name || 'Sagar PG';
   const tenantName = (record.tenant as any)?.full_name || 'Resident';
@@ -380,6 +389,22 @@ export async function sendRentBillWhatsApp(pgId: string, rentRecordId: string) {
   const totalAmount = `₹${(record.total_due_paise / 100).toLocaleString('en-IN')}`;
   const dueDateFormatted = formatDateDMY(record.due_date);
   const invoiceNo = `INV-${record.month.replace('-', '')}-${record.id.slice(0, 6).toUpperCase()}`;
+
+  let paymentDetails = '';
+  if (pg?.upi_id) {
+    paymentDetails += `• UPI ID: *${pg.upi_id}*\n`;
+  }
+  if (pg?.account_number) {
+    paymentDetails += `• Bank: *${pg.bank_name || 'Bank'}*\n`;
+    paymentDetails += `• Account No: *${pg.account_number}*\n`;
+    paymentDetails += `• IFSC: *${pg.ifsc_code || 'N/A'}*\n`;
+    if (pg.account_holder_name) {
+      paymentDetails += `• Name: *${pg.account_holder_name}*\n`;
+    }
+  }
+  if (qrBuffer) {
+    paymentDetails += `📸 *Payment QR code is attached above. Scan & pay via any UPI app.*\n`;
+  }
 
   const invoiceMsg =
     `📋 *RENT INVOICE — ${pgName.toUpperCase()}*\n` +
@@ -392,10 +417,10 @@ export async function sendRentBillWhatsApp(pgId: string, rentRecordId: string) {
     `Due Date: *${dueDateFormatted}*\n` +
     `Status: *${record.status.toUpperCase()}*\n` +
     `━━━━━━━━━━━━━━━━━━━━\n` +
-    `Please complete the payment on or before *${dueDateFormatted}*.\n` +
-    `UPI payments can be submitted in your tenant portal.`;
+    (paymentDetails ? `*Payment Details*:\n${paymentDetails}\n` : '') +
+    `After paying, enter your UTR / Reference ID in the resident portal so we can verify and mark it as paid.`;
 
-  await sendWhatsAppMessage(record.tenant.phone, invoiceMsg);
+  await sendWhatsAppMessage(record.tenant.phone, invoiceMsg, { imageBuffer: qrBuffer });
   return { success: true, message: `Invoice sent to ${record.tenant.phone}` };
 }
 

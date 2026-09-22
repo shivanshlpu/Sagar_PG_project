@@ -78,6 +78,26 @@ export default function AdminPayments() {
     )},
     { key: 'amount_paise', header: 'Amount', render: (r: Payment) => <span className="tabular-nums" style={{ fontWeight: 600 }}>{formatCurrency(r.amount_paise)}</span>, sortable: true },
     { key: 'payment_method', header: 'Method', render: (r: Payment) => <span style={{ textTransform: 'uppercase', fontSize: 'var(--font-size-xs)', fontWeight: 500 }}>{r.payment_method}</span> },
+    { key: 'notes', header: 'UTR / Ref ID', render: (r: Payment) => {
+      const utrMatch = r.notes?.match(/UTR:\s*([^|\n]+)/i);
+      const utr = utrMatch ? utrMatch[1].trim() : (r.notes?.startsWith('UTR:') ? r.notes.replace('UTR:', '').trim() : null);
+      if (utr) {
+        return (
+          <code style={{
+            fontSize: 'var(--font-size-xs)',
+            fontWeight: 700,
+            padding: '2px 8px',
+            backgroundColor: 'var(--color-bg-surface-alt)',
+            borderRadius: '4px',
+            border: '1px solid var(--color-border)',
+            color: 'var(--color-primary)',
+          }}>
+            {utr}
+          </code>
+        );
+      }
+      return <span style={{ color: 'var(--color-text-muted)', fontSize: 'var(--font-size-xs)' }}>{r.notes || '-'}</span>;
+    }},
     { key: 'status', header: 'Status', render: (r: Payment) => <Badge variant={getStatusBadgeVariant(r.status)}>{r.status}</Badge> },
   ];
 
@@ -128,9 +148,14 @@ export default function AdminPayments() {
                 {formatCurrency(payment.amount_paise)}
               </span>
               {payment.notes && (
-                <p style={{ margin: '6px 0 0', fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', fontStyle: 'italic' }}>
-                  Note: {payment.notes}
-                </p>
+                <div style={{ margin: '8px 0', padding: '8px 12px', backgroundColor: 'var(--color-bg-surface-alt)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)' }}>
+                  <span style={{ fontSize: '11px', color: 'var(--color-text-muted)', textTransform: 'uppercase', display: 'block', fontWeight: 600 }}>
+                    Payment Reference / UTR
+                  </span>
+                  <code style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-primary)' }}>
+                    {payment.notes}
+                  </code>
+                </div>
               )}
               {payment.rejection_reason && (
                 <p style={{ margin: '6px 0 0', fontSize: 'var(--font-size-xs)', color: 'var(--color-danger)' }}>
@@ -149,7 +174,7 @@ export default function AdminPayments() {
               {payment.status === 'submitted' && (
                 <>
                   <Button size="sm" variant="primary" onClick={() => verify(payment.id, 'verified')}>
-                    <Check size={14} /> Verify
+                    <Check size={14} /> Verify & Mark Paid
                   </Button>
                   <Button size="sm" variant="danger" onClick={() => verify(payment.id, 'rejected')}>
                     <X size={14} /> Reject
@@ -178,8 +203,24 @@ export default function AdminPayments() {
             </button>
             {row.status === 'submitted' && (
               <>
-                <button onClick={() => verify(row.id, 'verified')} style={{ ...iconBtnStyle, color: 'var(--color-success)' }} title="Verify Payment">
-                  <Check size={16} />
+                <button
+                  onClick={() => verify(row.id, 'verified')}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    backgroundColor: 'var(--color-success)',
+                    color: '#ffffff',
+                    border: 'none',
+                    borderRadius: 'var(--radius-sm)',
+                    padding: '4px 8px',
+                    fontSize: 'var(--font-size-xs)',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                  }}
+                  title="Verify payment and mark rent as paid"
+                >
+                  <Check size={14} /> Mark Paid
                 </button>
                 <button onClick={() => verify(row.id, 'rejected')} style={{ ...iconBtnStyle, color: 'var(--color-danger)' }} title="Reject Payment">
                   <X size={16} />

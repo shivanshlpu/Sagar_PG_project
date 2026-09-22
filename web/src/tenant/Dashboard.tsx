@@ -1,8 +1,12 @@
 import React from 'react';
 import { Card } from '../components/ui/Card';
 import { Badge, getStatusBadgeVariant } from '../components/ui/Badge';
+import { Button } from '../components/ui/Button';
+import { Modal } from '../components/ui/Modal';
+import { FormField, Input, Select } from '../components/ui/FormField';
+import { useToast } from '../components/ui/Toast';
 import { useAuth } from '../hooks/useAuth';
-import { apiGet, formatCurrency, formatMonth } from '../lib/api';
+import { apiGet, apiPost, formatCurrency, formatMonth } from '../lib/api';
 import {
   Zap,
   Home,
@@ -10,6 +14,13 @@ import {
   History,
   AlertCircle,
   Info,
+  CreditCard,
+  QrCode,
+  Copy,
+  Check,
+  Clock,
+  Landmark,
+  CheckCircle2,
 } from 'lucide-react';
 
 interface TenantBillingSummary {
@@ -66,6 +77,7 @@ interface TenantBillingSummary {
     amount_paise: number;
     payment_method: string;
     status: string;
+    notes?: string | null;
     created_at: string;
     verified_at: string | null;
     rejection_reason: string | null;
@@ -92,6 +104,85 @@ export default function TenantDashboard() {
     setIsLoading(false);
   }
 
+  const { showToast } = useToast();
+  const [showPaymentModal, setShowPaymentModal] = React.useState(false);
+  const [bankingDetails, setBankingDetails] = React.useState<{
+    upi_id: string;
+    bank_name: string;
+    account_number: string;
+    ifsc_code: string;
+    account_holder_name: string;
+    payment_qr: string | null;
+  } | null>(null);
+  const [isLoadingBanking, setIsLoadingBanking] = React.useState(false);
+  const [copiedField, setCopiedField] = React.useState<string | null>(null);
+
+  const [utrId, setUtrId] = React.useState('');
+  const [paymentMethod, setPaymentMethod] = React.useState<'upi' | 'bank_transfer' | 'cash'>('upi');
+  const [paymentAmount, setPaymentAmount] = React.useState<number | string>('');
+  const [paymentNotes, setPaymentNotes] = React.useState('');
+  const [isSubmitting, setIsSubmitting] = React.useState(false);
+
+  async function openPaymentModal() {
+    setShowPaymentModal(true);
+    setPaymentAmount(data?.currentDue ? (data.currentDue.total_due_paise / 100).toString() : '0');
+    if (!bankingDetails) {
+      setIsLoadingBanking(true);
+      const res = await apiGet<{
+        upi_id: string;
+        bank_name: string;
+        account_number: string;
+        ifsc_code: string;
+        account_holder_name: string;
+        payment_qr: string | null;
+      }>('/settings/banking');
+      if (res.success && res.data) {
+        setBankingDetails(res.data);
+      }
+      setIsLoadingBanking(false);
+    }
+  }
+
+  function copyToClipboard(text: string, label: string) {
+    navigator.clipboard.writeText(text);
+    setCopiedField(label);
+    showToast(`Copied ${label} to clipboard!`);
+    setTimeout(() => setCopiedField(null), 2000);
+  }
+
+  async function handleSubmitPayment(e: React.FormEvent) {
+    e.preventDefault();
+    if (!utrId.trim()) {
+      showToast('Please enter your 12-digit UTR or Reference ID', 'error');
+      return;
+    }
+    const numAmt = Number(paymentAmount);
+    if (isNaN(numAmt) || numAmt <= 0) {
+      showToast('Please enter a valid amount paid', 'error');
+      return;
+    }
+
+    setIsSubmitting(true);
+    const res = await apiPost('/payments', {
+      rent_record_id: data?.currentDue?.rent_record_id || null,
+      amount_paise: Math.round(numAmt * 100),
+      payment_method: paymentMethod,
+      utr_id: utrId.trim(),
+      notes: paymentNotes.trim() || null,
+    });
+
+    if (res.success) {
+      showToast('Payment submitted successfully! Admin will verify and mark as paid.');
+      setShowPaymentModal(false);
+      setUtrId('');
+      setPaymentNotes('');
+      await loadBillingSummary();
+    } else {
+      showToast(res.error || 'Failed to submit payment', 'error');
+    }
+    setIsSubmitting(false);
+  }
+
   if (isLoading) {
     return (
       <div className="page-container">
@@ -107,6 +198,7 @@ export default function TenantDashboard() {
 
   const current = data?.currentDue;
   const isPaid = current?.status === 'paid';
+  const pendingPayment = data?.payments?.find((p) => p.status === 'submitted');
 
   return (
     <div className="page-container" style={{ maxWidth: '1000px', margin: '0 auto' }}>
@@ -269,6 +361,105 @@ export default function TenantDashboard() {
           </div>
         </div>
 
+        {/* Payment Action Banner */}
+        {!isPaid && (
+          <div style={{ marginTop: '18px' }}>
+            {pendingPayment ? (
+              <div style={{
+                padding: '16px 20px',
+                backgroundColor: '#FEF3C7',
+                border: '1px solid #FCD34D',
+                borderRadius: 'var(--radius-md)',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: '12px',
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <div style={{
+                    width: '38px',
+                    height: '38px',
+                    borderRadius: '50%',
+                    backgroundColor: '#FDE68A',
+                    color: '#B45309',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexShrink: 0,
+                  }}>
+                    <Clock size={20} />
+                  </div>
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: 'var(--font-size-sm)', color: '#92400E' }}>
+                      Payment Submitted (Pending Admin Verification)
+                    </div>
+                    <div style={{ fontSize: 'var(--font-size-xs)', color: '#78350F', marginTop: '2px' }}>
+                      Amount: {formatCurrency(pendingPayment.amount_paise)} •{' '}
+                      {pendingPayment.notes?.includes('UTR:') ? (
+                        <span style={{ fontWeight: 600 }}>{pendingPayment.notes.split('|')[0].trim()}</span>
+                      ) : (
+                        `Submitted on ${new Date(pendingPayment.created_at).toLocaleDateString('en-IN')}`
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <Button size="sm" variant="secondary" onClick={openPaymentModal}>
+                  Submit Another Proof
+                </Button>
+              </div>
+            ) : (
+              <div style={{
+                padding: '16px 20px',
+                backgroundColor: 'var(--color-primary-light)',
+                border: '1px solid var(--color-border)',
+                borderRadius: 'var(--radius-md)',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: '14px',
+              }}>
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: 'var(--font-size-base)', color: 'var(--color-primary)' }}>
+                    Payment Due for {formatMonth(current?.month || '')}
+                  </div>
+                  <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', marginTop: '2px' }}>
+                    Pay via UPI / QR Code or Netbanking and submit your UTR ID for verification.
+                  </div>
+                </div>
+
+                <Button
+                  size="md"
+                  onClick={openPaymentModal}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}
+                >
+                  <CreditCard size={18} /> Pay Rent / Submit UTR
+                </Button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {isPaid && (
+          <div style={{
+            marginTop: '16px',
+            padding: '12px 18px',
+            backgroundColor: 'var(--color-success-light)',
+            color: 'var(--color-success)',
+            borderRadius: 'var(--radius-md)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '10px',
+            fontSize: 'var(--font-size-sm)',
+            fontWeight: 600,
+          }}>
+            <CheckCircle2 size={18} />
+            <span>Rent for this month is fully settled and verified by administration.</span>
+          </div>
+        )}
+
         <div style={{ marginTop: '14px', display: 'flex', alignItems: 'center', gap: '8px', fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>
           <Info size={14} style={{ flexShrink: 0 }} />
           <span>Note: Rent and electricity figures are recorded directly by property administration and cannot be altered.</span>
@@ -351,30 +542,43 @@ export default function TenantDashboard() {
                   <th style={thStyle}>Payment Date</th>
                   <th style={thStyle}>Amount Paid</th>
                   <th style={thStyle}>Payment Method</th>
+                  <th style={thStyle}>UTR / Reference ID</th>
                   <th style={thStyle}>Status</th>
                   <th style={thStyle}>Verification / Details</th>
                 </tr>
               </thead>
               <tbody>
-                {data.payments.map((p) => (
-                  <tr key={p.id}>
-                    <td style={tdStyle}>{new Date(p.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</td>
-                    <td style={{ ...tdStyle, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
-                      {formatCurrency(p.amount_paise)}
-                    </td>
-                    <td style={{ ...tdStyle, textTransform: 'uppercase' }}>{p.payment_method}</td>
-                    <td style={tdStyle}>
-                      <Badge variant={getStatusBadgeVariant(p.status)}>{p.status}</Badge>
-                    </td>
-                    <td style={{ ...tdStyle, fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
-                      {p.status === 'verified'
-                        ? `Verified on ${p.verified_at ? new Date(p.verified_at).toLocaleDateString('en-IN') : '-'}`
-                        : p.status === 'rejected'
-                        ? `Rejected: ${p.rejection_reason || 'See administration'}`
-                        : 'Awaiting admin verification'}
-                    </td>
-                  </tr>
-                ))}
+                {data.payments.map((p) => {
+                  const utr = p.notes?.includes('UTR:') ? p.notes.split('|')[0].replace('UTR:', '').trim() : null;
+                  return (
+                    <tr key={p.id}>
+                      <td style={tdStyle}>{new Date(p.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</td>
+                      <td style={{ ...tdStyle, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
+                        {formatCurrency(p.amount_paise)}
+                      </td>
+                      <td style={{ ...tdStyle, textTransform: 'uppercase' }}>{p.payment_method}</td>
+                      <td style={{ ...tdStyle, fontFamily: 'monospace', fontSize: 'var(--font-size-xs)' }}>
+                        {utr ? (
+                          <span style={{ backgroundColor: 'var(--color-bg-surface-alt)', padding: '3px 8px', borderRadius: '4px', border: '1px solid var(--color-border)', fontWeight: 600, color: 'var(--color-text-primary)' }}>
+                            {utr}
+                          </span>
+                        ) : (
+                          <span style={{ color: 'var(--color-text-muted)' }}>-</span>
+                        )}
+                      </td>
+                      <td style={tdStyle}>
+                        <Badge variant={getStatusBadgeVariant(p.status)}>{p.status}</Badge>
+                      </td>
+                      <td style={{ ...tdStyle, fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
+                        {p.status === 'verified'
+                          ? `Verified on ${p.verified_at ? new Date(p.verified_at).toLocaleDateString('en-IN') : '-'}`
+                          : p.status === 'rejected'
+                          ? `Rejected: ${p.rejection_reason || 'See administration'}`
+                          : 'Awaiting admin verification'}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -384,6 +588,213 @@ export default function TenantDashboard() {
           </div>
         )}
       </Card>
+
+      {/* Payment & UTR Submission Modal */}
+      {showPaymentModal && (
+        <Modal
+          isOpen={showPaymentModal}
+          onClose={() => setShowPaymentModal(false)}
+          title={`Pay Rent — ${formatMonth(current?.month || '')}`}
+          size="lg"
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            {/* Header: Amount Due Banner */}
+            <div style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              padding: '16px 20px',
+              backgroundColor: 'var(--color-bg-surface-alt)',
+              borderRadius: 'var(--radius-md)',
+              border: '1px solid var(--color-border)',
+            }}>
+              <div>
+                <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', textTransform: 'uppercase' }}>
+                  Total Balance Due
+                </span>
+                <div style={{ fontSize: '24px', fontWeight: 800, color: 'var(--color-primary)' }}>
+                  {formatCurrency(current?.total_due_paise || 0)}
+                </div>
+              </div>
+              <Badge variant={getStatusBadgeVariant(current?.status || 'pending')}>
+                {(current?.status || 'pending').toUpperCase()}
+              </Badge>
+            </div>
+
+            {/* Step 1: PG Banking Details & QR Code */}
+            <div>
+              <h3 style={{ fontSize: 'var(--font-size-sm)', fontWeight: 700, textTransform: 'uppercase', color: 'var(--color-text-secondary)', letterSpacing: '0.5px', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <QrCode size={16} style={{ color: 'var(--color-primary)' }} />
+                <span>Step 1: Scan QR or Transfer via UPI / Bank</span>
+              </h3>
+
+              {isLoadingBanking ? (
+                <div className="skeleton" style={{ height: '140px', borderRadius: 'var(--radius-md)' }} />
+              ) : (
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: bankingDetails?.payment_qr ? 'auto 1fr' : '1fr',
+                  gap: '16px',
+                  padding: '16px',
+                  backgroundColor: 'var(--color-bg-surface)',
+                  borderRadius: 'var(--radius-md)',
+                  border: '1px solid var(--color-border)',
+                  alignItems: 'center',
+                }}>
+                  {bankingDetails?.payment_qr && (
+                    <div style={{ textAlign: 'center', padding: '8px', backgroundColor: '#ffffff', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)' }}>
+                      <img
+                        src={bankingDetails.payment_qr}
+                        alt="Payment QR Code"
+                        style={{ width: '160px', height: '160px', objectFit: 'contain', display: 'block' }}
+                      />
+                      <span style={{ fontSize: '10px', color: '#64748B', fontWeight: 600, display: 'block', marginTop: '4px' }}>
+                        Scan via GPay / PhonePe / Paytm
+                      </span>
+                    </div>
+                  )}
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  {bankingDetails?.upi_id && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', backgroundColor: 'var(--color-bg-surface-alt)', borderRadius: 'var(--radius-sm)' }}>
+                      <div>
+                        <span style={{ fontSize: '11px', color: 'var(--color-text-muted)', display: 'block' }}>UPI ID</span>
+                        <code style={{ fontSize: 'var(--font-size-sm)', fontWeight: 700, color: 'var(--color-primary)' }}>
+                          {bankingDetails.upi_id}
+                        </code>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => copyToClipboard(bankingDetails.upi_id, 'UPI ID')}
+                        style={{ padding: '4px 10px' }}
+                      >
+                        {copiedField === 'UPI ID' ? <Check size={14} style={{ color: 'var(--color-success)' }} /> : <Copy size={14} />}
+                        <span>{copiedField === 'UPI ID' ? 'Copied' : 'Copy'}</span>
+                      </Button>
+                    </div>
+                  )}
+
+                  {bankingDetails?.account_number && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', backgroundColor: 'var(--color-bg-surface-alt)', borderRadius: 'var(--radius-sm)' }}>
+                      <div>
+                        <span style={{ fontSize: '11px', color: 'var(--color-text-muted)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          <Landmark size={12} /> Bank Account ({bankingDetails.bank_name || 'Bank'})
+                        </span>
+                        <code style={{ fontSize: 'var(--font-size-sm)', fontWeight: 700 }}>
+                          {bankingDetails.account_number}
+                        </code>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => copyToClipboard(bankingDetails.account_number, 'Account Number')}
+                        style={{ padding: '4px 10px' }}
+                      >
+                        {copiedField === 'Account Number' ? <Check size={14} style={{ color: 'var(--color-success)' }} /> : <Copy size={14} />}
+                        <span>{copiedField === 'Account Number' ? 'Copied' : 'Copy'}</span>
+                      </Button>
+                    </div>
+                  )}
+
+                  {bankingDetails?.ifsc_code && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', backgroundColor: 'var(--color-bg-surface-alt)', borderRadius: 'var(--radius-sm)' }}>
+                      <div>
+                        <span style={{ fontSize: '11px', color: 'var(--color-text-muted)', display: 'block' }}>IFSC Code</span>
+                        <code style={{ fontSize: 'var(--font-size-sm)', fontWeight: 700 }}>
+                          {bankingDetails.ifsc_code}
+                        </code>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => copyToClipboard(bankingDetails.ifsc_code, 'IFSC Code')}
+                        style={{ padding: '4px 10px' }}
+                      >
+                        {copiedField === 'IFSC Code' ? <Check size={14} style={{ color: 'var(--color-success)' }} /> : <Copy size={14} />}
+                        <span>{copiedField === 'IFSC Code' ? 'Copied' : 'Copy'}</span>
+                      </Button>
+                    </div>
+                  )}
+
+                  {bankingDetails?.account_holder_name && (
+                    <div style={{ padding: '6px 12px', fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
+                      Beneficiary: <strong>{bankingDetails.account_holder_name}</strong>
+                    </div>
+                  )}
+
+                  {!bankingDetails?.upi_id && !bankingDetails?.account_number && !bankingDetails?.payment_qr && (
+                    <div style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-secondary)', padding: '8px' }}>
+                      Contact administration for direct payment instructions.
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+            </div>
+
+            {/* Step 2: Enter UTR & Submit */}
+            <form onSubmit={handleSubmitPayment} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <h3 style={{ fontSize: 'var(--font-size-sm)', fontWeight: 700, textTransform: 'uppercase', color: 'var(--color-text-secondary)', letterSpacing: '0.5px', margin: '4px 0 0' }}>
+                Step 2: Enter UTR / Reference ID & Submit
+              </h3>
+
+              <FormField label="UTR / Transaction Reference ID" required>
+                <Input
+                  placeholder="e.g. 12-digit UPI reference (e.g. 425189012345)"
+                  value={utrId}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setUtrId(e.target.value)}
+                  required
+                  autoFocus
+                />
+                <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)', marginTop: '4px' }}>
+                  You will find this 12-digit reference number in Google Pay, PhonePe, Paytm, or your bank transaction receipt.
+                </span>
+              </FormField>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <FormField label="Payment Method">
+                  <Select
+                    options={[
+                      { value: 'upi', label: 'UPI (GPay / PhonePe / Paytm)' },
+                      { value: 'bank_transfer', label: 'Bank Transfer (IMPS / NEFT)' },
+                      { value: 'cash', label: 'Cash' },
+                    ]}
+                    value={paymentMethod}
+                    onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setPaymentMethod(e.target.value as any)}
+                  />
+                </FormField>
+
+                <FormField label="Amount Paid (₹)" required>
+                  <Input
+                    type="number"
+                    value={paymentAmount}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPaymentAmount(e.target.value)}
+                    required
+                  />
+                </FormField>
+              </div>
+
+              <FormField label="Notes / Remarks (Optional)">
+                <Input
+                  placeholder="e.g. Paid from HDFC account ending in 4102"
+                  value={paymentNotes}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPaymentNotes(e.target.value)}
+                />
+              </FormField>
+
+              <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '8px' }}>
+                <Button variant="secondary" onClick={() => setShowPaymentModal(false)} type="button">
+                  Cancel
+                </Button>
+                <Button variant="primary" type="submit" isLoading={isSubmitting}>
+                  <Check size={16} /> Submit Payment for Verification
+                </Button>
+              </div>
+            </form>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }
