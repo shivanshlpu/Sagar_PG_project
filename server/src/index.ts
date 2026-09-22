@@ -122,7 +122,7 @@ function startKeepAlive() {
 app.listen(env.PORT, () => {
   console.log(`Server running on port ${env.PORT}`);
   console.log(`Environment: ${env.NODE_ENV}`);
-  initWhatsAppIfSessionExists();
+  initWhatsAppIfSessionExists().catch((err) => console.error('[WhatsApp Startup Error]:', err.message));
   startKeepAlive();
   startReminderCron();
 });

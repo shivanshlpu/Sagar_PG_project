@@ -5,9 +5,10 @@ import jwt from 'jsonwebtoken';
 import { AuthUser, UserRole } from '../types';
 import { createNotification } from './notifications.service';
 
-// Refresh token lifetime: 30 days (bounded but long, so user is not repeatedly prompted)
-const ACCESS_TOKEN_EXPIRY = '1h';
-const REFRESH_TOKEN_EXPIRY = '30d';
+// Persistent session lifetimes: 30 days access token, 365 days refresh token
+// Neither tenants nor admins are repeatedly forced to log in
+const ACCESS_TOKEN_EXPIRY = '30d';
+const REFRESH_TOKEN_EXPIRY = '365d';
 
 function generateTokens(user: AuthUser) {
   const accessToken = jwt.sign(user, env.JWT_SECRET, { expiresIn: ACCESS_TOKEN_EXPIRY });

@@ -6,6 +6,7 @@ import makeWASocket, {
 import QRCode from 'qrcode';
 import path from 'path';
 import fs from 'fs';
+import { supabaseAdmin } from '../config/supabase';
 
 const SESSIONS_DIR = path.resolve(__dirname, '../../sessions');
 
@@ -37,6 +38,9 @@ let isSocketReadyForPairing = false;
 let qrResolvers: Array<(qr: string) => void> = [];
 let readyResolvers: Array<() => void> = [];
 
+// Debounced timer for persisting session files to Supabase DB
+let saveDbTimer: NodeJS.Timeout | null = null;
+
 export function hasExistingSession(): boolean {
   try {
     const credsPath = path.join(SESSIONS_DIR, 'creds.json');
@@ -59,18 +63,113 @@ export function getSavedPhone(): string | null {
   return null;
 }
 
-export function initWhatsAppIfSessionExists(): void {
+/**
+ * Persists all session files from disk into Supabase database.
+ * This guarantees that when a new update is pushed to git or the container restarts,
+ * the session is NOT lost even if the local disk is wiped.
+ */
+async function syncSessionToDatabase(): Promise<void> {
+  try {
+    if (!fs.existsSync(SESSIONS_DIR)) return;
+    const files = fs.readdirSync(SESSIONS_DIR);
+    if (!files.includes('creds.json')) return;
+
+    const sessionFiles: Record<string, string> = {};
+    for (const file of files) {
+      const filePath = path.join(SESSIONS_DIR, file);
+      if (fs.statSync(filePath).isFile()) {
+        sessionFiles[file] = fs.readFileSync(filePath, 'utf8');
+      }
+    }
+
+    await supabaseAdmin
+      .from('settings')
+      .upsert(
+        {
+          key: 'whatsapp_session_backup',
+          value: { files: sessionFiles, savedAt: new Date().toISOString() },
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'key' }
+      );
+    console.log(`[WhatsApp] Persisted session (${Object.keys(sessionFiles).length} files) to database.`);
+  } catch (err: any) {
+    console.warn('[WhatsApp] Failed to backup session to database:', err.message);
+  }
+}
+
+function debouncedSaveSessionToDatabase() {
+  if (saveDbTimer) clearTimeout(saveDbTimer);
+  saveDbTimer = setTimeout(() => {
+    syncSessionToDatabase().catch((e) => console.warn('[WhatsApp Backup Warn]:', e.message));
+  }, 2000);
+}
+
+/**
+ * Restores session credentials from Supabase database onto local disk if disk session was wiped.
+ */
+export async function restoreSessionFromDatabase(): Promise<boolean> {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('settings')
+      .select('value')
+      .eq('key', 'whatsapp_session_backup')
+      .maybeSingle();
+
+    if (error || !data?.value?.files) return false;
+
+    const files = data.value.files as Record<string, string>;
+    if (!files['creds.json']) return false;
+
+    if (!fs.existsSync(SESSIONS_DIR)) {
+      fs.mkdirSync(SESSIONS_DIR, { recursive: true });
+    }
+
+    for (const [name, content] of Object.entries(files)) {
+      if (typeof content === 'string') {
+        fs.writeFileSync(path.join(SESSIONS_DIR, name), content, 'utf8');
+      }
+    }
+
+    console.log(`[WhatsApp] Restored session (${Object.keys(files).length} files) from DB backup.`);
+    return true;
+  } catch (err: any) {
+    console.warn('[WhatsApp] Could not restore session from database:', err.message);
+    return false;
+  }
+}
+
+export async function initWhatsAppIfSessionExists(): Promise<void> {
+  // 1. If no session on disk, attempt to restore from Supabase DB first
+  if (!hasExistingSession()) {
+    try {
+      await restoreSessionFromDatabase();
+    } catch (e: any) {
+      console.warn('[WhatsApp DB Restore Error]:', e.message);
+    }
+  }
+
+  // 2. If session exists (either on disk or restored from DB), connect automatically!
   if (hasExistingSession()) {
-    console.log('[WhatsApp] Existing session found on disk. Connecting automatically...');
+    console.log('[WhatsApp] Existing session found. Connecting automatically...');
     connectWhatsApp().catch((err) => console.error('[WhatsApp Auto-Init Error]:', err.message));
   }
 }
 
 export function getWhatsAppStatus(): WhatsAppState {
-  // If disconnected but a saved session exists on disk, trigger automatic reconnection in the background
-  if (connectionStatus === 'disconnected' && !isInitializing && hasExistingSession()) {
-    console.log('[WhatsApp] Auto-connecting saved session on status check...');
-    connectWhatsApp().catch((err) => console.error('[WhatsApp Auto-Connect Error]:', err.message));
+  // If disconnected but a saved session exists, trigger automatic reconnection in the background
+  if (connectionStatus === 'disconnected' && !isInitializing) {
+    if (hasExistingSession()) {
+      console.log('[WhatsApp] Auto-connecting saved session on status check...');
+      connectWhatsApp().catch((err) => console.error('[WhatsApp Auto-Connect Error]:', err.message));
+    } else {
+      // Check if session can be restored from DB in background
+      restoreSessionFromDatabase().then((restored) => {
+        if (restored && connectionStatus === 'disconnected' && !isInitializing) {
+          connectWhatsApp().catch((err) => console.error('[WhatsApp Auto-Connect Error]:', err.message));
+        }
+      }).catch(() => {});
+    }
   }
 
   const phone = connectedPhone || (connectionStatus === 'connected' ? getSavedPhone() : null);
@@ -87,97 +186,124 @@ export function getWhatsAppStatus(): WhatsAppState {
 }
 
 export async function connectWhatsApp(): Promise<WhatsAppState> {
+  // Already connected with an active socket? Don't create another!
   if (connectionStatus === 'connected' && sock) {
     return getWhatsAppStatus();
   }
 
-  // If already initializing and we have a QR code, return immediately
-  if (isInitializing && currentQr) {
+  // If already initializing and waiting for QR or open connection, don't create multiple sockets!
+  if (isInitializing) {
     return getWhatsAppStatus();
   }
 
-  if (!isInitializing) {
-    isInitializing = true;
-    lastError = null;
-    if (connectionStatus !== 'connected') {
-      connectionStatus = 'pairing';
-    }
-    isSocketReadyForPairing = false;
-
+  // Check if session can be restored from DB before starting pairing from scratch
+  if (!hasExistingSession()) {
     try {
-      const { state, saveCreds } = await useMultiFileAuthState(SESSIONS_DIR);
-      const { version } = await fetchLatestBaileysVersion();
+      await restoreSessionFromDatabase();
+    } catch {}
+  }
 
-      sock = makeWASocket({
-        version,
-        auth: state,
-        printQRInTerminal: false,
-        connectTimeoutMs: 60000,
-        defaultQueryTimeoutMs: 60000,
-      });
+  isInitializing = true;
+  lastError = null;
+  if (connectionStatus !== 'connected') {
+    connectionStatus = 'pairing';
+  }
+  isSocketReadyForPairing = false;
 
-      sock.ev.on('creds.update', saveCreds);
+  // Clean up any stale/zombie socket before opening a new one to prevent WhatsApp conflict
+  if (sock) {
+    try {
+      sock.ev.removeAllListeners('connection.update');
+      sock.ev.removeAllListeners('creds.update');
+      sock.end(undefined);
+    } catch {}
+    sock = null;
+  }
 
-      sock.ev.on('connection.update', async (update: any) => {
-        const { connection, lastDisconnect, qr } = update;
+  try {
+    const { state, saveCreds } = await useMultiFileAuthState(SESSIONS_DIR);
+    const { version } = await fetchLatestBaileysVersion();
 
-        if (qr) {
-          try {
-            currentQr = await QRCode.toDataURL(qr, { margin: 2, scale: 8 });
-            connectionStatus = 'pairing';
-            isSocketReadyForPairing = true;
-            console.log('[WhatsApp] New QR code generated');
+    sock = makeWASocket({
+      version,
+      auth: state,
+      printQRInTerminal: false,
+      connectTimeoutMs: 60000,
+      defaultQueryTimeoutMs: 60000,
+    });
 
-            // Notify all waiters
-            qrResolvers.forEach((r) => r(currentQr!));
-            qrResolvers = [];
-            readyResolvers.forEach((r) => r());
-            readyResolvers = [];
-          } catch (qrErr: any) {
-            console.error('[WhatsApp] Failed to generate QR data URL:', qrErr.message);
-          }
-        }
+    sock.ev.on('creds.update', async () => {
+      await saveCreds();
+      debouncedSaveSessionToDatabase();
+    });
 
-        if (connection === 'close') {
-          const statusCode = (lastDisconnect?.error as any)?.output?.statusCode;
-          const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
-          connectionStatus = 'disconnected';
-          currentQr = null;
-          pairingCode = null;
-          connectedPhone = null;
-          connectedAt = null;
-          isSocketReadyForPairing = false;
-          lastError = lastDisconnect?.error?.message || 'Connection closed';
-          console.log(`[WhatsApp] Closed (${statusCode}). Reconnecting: ${shouldReconnect}`);
+    sock.ev.on('connection.update', async (update: any) => {
+      const { connection, lastDisconnect, qr } = update;
 
-          if (shouldReconnect && statusCode !== 401) {
-            setTimeout(() => {
-              connectWhatsApp().catch((err) => console.error('[WhatsApp Reconnect Error]:', err.message));
-            }, 5000);
-          }
-        } else if (connection === 'open') {
-          connectionStatus = 'connected';
-          currentQr = null;
-          pairingCode = null;
+      if (qr) {
+        try {
+          currentQr = await QRCode.toDataURL(qr, { margin: 2, scale: 8 });
+          connectionStatus = 'pairing';
           isSocketReadyForPairing = true;
-          connectedAt = new Date().toISOString();
-          connectedPhone = sock?.user?.id?.split(':')[0] || getSavedPhone() || null;
-          lastError = null;
-          console.log(`[WhatsApp] Connected successfully as ${connectedPhone}`);
+          console.log('[WhatsApp] New QR code generated');
 
+          // Notify all waiters
+          qrResolvers.forEach((r) => r(currentQr!));
+          qrResolvers = [];
           readyResolvers.forEach((r) => r());
           readyResolvers = [];
+        } catch (qrErr: any) {
+          console.error('[WhatsApp] Failed to generate QR data URL:', qrErr.message);
         }
-      });
-    } catch (err: any) {
-      lastError = err.message;
-      connectionStatus = 'disconnected';
-      isInitializing = false;
-      console.error('[WhatsApp Init Error]:', err.message);
-      throw err;
-    } finally {
-      isInitializing = false;
-    }
+      }
+
+      if (connection === 'close') {
+        const statusCode = (lastDisconnect?.error as any)?.output?.statusCode;
+        const isRestartRequired = statusCode === DisconnectReason.restartRequired;
+        const isLoggedOut = statusCode === DisconnectReason.loggedOut;
+        const shouldReconnect = isRestartRequired || (!isLoggedOut && statusCode !== 440);
+
+        connectionStatus = 'disconnected';
+        currentQr = null;
+        pairingCode = null;
+        isSocketReadyForPairing = false;
+        lastError = lastDisconnect?.error?.message || 'Connection closed';
+        console.log(`[WhatsApp] Closed (${statusCode}). Reconnecting: ${shouldReconnect}`);
+
+        if (shouldReconnect) {
+          setTimeout(() => {
+            connectWhatsApp().catch((err) => console.error('[WhatsApp Reconnect Error]:', err.message));
+          }, isRestartRequired ? 1000 : 5000);
+        } else if (hasExistingSession() && !isLoggedOut) {
+          setTimeout(() => {
+            connectWhatsApp().catch((err) => console.error('[WhatsApp Reconnect Error]:', err.message));
+          }, 5000);
+        }
+      } else if (connection === 'open') {
+        connectionStatus = 'connected';
+        currentQr = null;
+        pairingCode = null;
+        isSocketReadyForPairing = true;
+        connectedAt = new Date().toISOString();
+        connectedPhone = sock?.user?.id?.split(':')[0] || getSavedPhone() || null;
+        lastError = null;
+        console.log(`[WhatsApp] Connected successfully as ${connectedPhone}`);
+
+        // Persist fresh verified session to database
+        debouncedSaveSessionToDatabase();
+
+        readyResolvers.forEach((r) => r());
+        readyResolvers = [];
+      }
+    });
+  } catch (err: any) {
+    lastError = err.message;
+    connectionStatus = 'disconnected';
+    isInitializing = false;
+    console.error('[WhatsApp Init Error]:', err.message);
+    throw err;
+  } finally {
+    isInitializing = false;
   }
 
   // If QR is already generated or already connected, return right away
@@ -260,6 +386,13 @@ export async function disconnectWhatsApp(): Promise<void> {
     } catch (e: any) {
       console.warn('[WhatsApp] Could not clean sessions dir:', e.message);
     }
+  }
+
+  // Clean DB backup
+  try {
+    await supabaseAdmin.from('settings').delete().eq('key', 'whatsapp_session_backup');
+  } catch (e: any) {
+    console.warn('[WhatsApp] Could not clean DB backup:', e.message);
   }
 }
 

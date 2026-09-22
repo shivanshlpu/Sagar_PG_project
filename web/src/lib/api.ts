@@ -29,24 +29,35 @@ export function clearTokens() {
   refreshToken = null;
   localStorage.removeItem('accessToken');
   localStorage.removeItem('refreshToken');
+  localStorage.removeItem('pg_auth_user');
+  localStorage.removeItem('pg_profile');
 }
 
 export function getAccessToken() {
-  return accessToken;
+  return accessToken || (typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null);
+}
+
+export function getRefreshToken() {
+  return refreshToken || (typeof window !== 'undefined' ? localStorage.getItem('refreshToken') : null);
 }
 
 async function refreshAccessToken(): Promise<boolean> {
-  if (!refreshToken) return false;
+  const token = refreshToken || (typeof window !== 'undefined' ? localStorage.getItem('refreshToken') : null);
+  if (!token) return false;
 
   try {
     const res = await fetch(`${API_URL}/auth/refresh`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ refreshToken }),
+      body: JSON.stringify({ refreshToken: token }),
     });
 
     if (!res.ok) {
-      clearTokens();
+      // ONLY clear tokens if server explicitly rejected the token as invalid/expired (401 or 403)
+      // Never clear tokens on 500, 502, 503, 504 cold-starts!
+      if (res.status === 401 || res.status === 403) {
+        clearTokens();
+      }
       return false;
     }
 
@@ -57,7 +68,7 @@ async function refreshAccessToken(): Promise<boolean> {
     }
     return false;
   } catch {
-    clearTokens();
+    // Network glitch or server waking up: DO NOT clear tokens!
     return false;
   }
 }
@@ -100,6 +111,19 @@ export async function api<T = unknown>(
     }
   }
 
+  // Sync tokens from localStorage if available
+  if (!accessToken && typeof window !== 'undefined') {
+    accessToken = localStorage.getItem('accessToken');
+  }
+  if (!refreshToken && typeof window !== 'undefined') {
+    refreshToken = localStorage.getItem('refreshToken');
+  }
+
+  // If access token is missing but refresh token exists, refresh proactively
+  if (!accessToken && refreshToken) {
+    await refreshAccessToken();
+  }
+
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...(options.headers as Record<string, string> || {}),
@@ -120,9 +144,9 @@ export async function api<T = unknown>(
   });
 
   // Auto-refresh on 401
-  if (res.status === 401 && refreshToken) {
+  if (res.status === 401 && (refreshToken || localStorage.getItem('refreshToken'))) {
     const refreshed = await refreshAccessToken();
-    if (refreshed) {
+    if (refreshed && accessToken) {
       headers['Authorization'] = `Bearer ${accessToken}`;
       res = await fetch(`${API_URL}${endpoint}`, {
         ...options,
@@ -131,7 +155,15 @@ export async function api<T = unknown>(
     }
   }
 
-  const data = await res.json();
+  let data;
+  try {
+    data = await res.json();
+  } catch {
+    return {
+      success: false,
+      error: `Server response error (${res.status}). Server might be starting up.`,
+    };
+  }
 
   // Cache successful GET responses
   if (method === 'GET' && data.success && !options.noCache) {

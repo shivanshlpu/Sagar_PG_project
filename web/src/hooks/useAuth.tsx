@@ -55,13 +55,35 @@ export function useAuth() {
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = React.useState<AuthUser | null>(null);
-  const [pg, setPg] = React.useState<PGProfile | null>(null);
-  const [isLoading, setIsLoading] = React.useState(true);
+  const [user, setUser] = React.useState<AuthUser | null>(() => {
+    try {
+      const cached = localStorage.getItem('pg_auth_user');
+      return cached ? JSON.parse(cached) : null;
+    } catch {
+      return null;
+    }
+  });
+
+  const [pg, setPg] = React.useState<PGProfile | null>(() => {
+    try {
+      const cached = localStorage.getItem('pg_profile');
+      return cached ? JSON.parse(cached) : null;
+    } catch {
+      return null;
+    }
+  });
+
+  const [isLoading, setIsLoading] = React.useState(() => {
+    const hasTokens = typeof window !== 'undefined' && !!(localStorage.getItem('accessToken') || localStorage.getItem('refreshToken'));
+    const cachedUser = typeof window !== 'undefined' ? localStorage.getItem('pg_auth_user') : null;
+    if (cachedUser && hasTokens) return false;
+    return hasTokens;
+  });
 
   const fetchCurrentUser = React.useCallback(async () => {
-    const token = localStorage.getItem('accessToken');
-    if (!token) {
+    const access = localStorage.getItem('accessToken');
+    const refresh = localStorage.getItem('refreshToken');
+    if (!access && !refresh) {
       setIsLoading(false);
       return;
     }
@@ -78,7 +100,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }>('/auth/me');
 
       if (res.success && res.data) {
-        setUser({
+        const authUserData: AuthUser = {
           id: res.data.id,
           email: res.data.email,
           role: res.data.role,
@@ -86,19 +108,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           pgName: res.data.pgName,
           tenantId: res.data.tenant?.id,
           tenant: res.data.tenant,
-        });
+        };
+        setUser(authUserData);
+        localStorage.setItem('pg_auth_user', JSON.stringify(authUserData));
+
         if (res.data.pg) {
           setPg(res.data.pg);
+          localStorage.setItem('pg_profile', JSON.stringify(res.data.pg));
         }
-      } else {
+      } else if (
+        res.error === 'Invalid or expired refresh token' ||
+        res.error === 'User not found' ||
+        res.error === 'Invalid token'
+      ) {
+        // Only clear tokens if the backend explicitly rejected the credentials
         clearTokens();
         setUser(null);
         setPg(null);
       }
-    } catch {
-      clearTokens();
-      setUser(null);
-      setPg(null);
+    } catch (e) {
+      // Network error or server cold-starting: DO NOT log the user out!
+      console.warn('[useAuth] Background auth check deferred:', e);
     } finally {
       setIsLoading(false);
     }
@@ -123,6 +153,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (res.success && res.data) {
       setTokens(res.data.tokens.accessToken, res.data.tokens.refreshToken);
       setUser(res.data.user);
+      localStorage.setItem('pg_auth_user', JSON.stringify(res.data.user));
       await fetchCurrentUser();
       return { success: true, user: res.data.user };
     }
@@ -134,6 +165,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (res.success && res.data) {
       setTokens(res.data.tokens.accessToken, res.data.tokens.refreshToken);
       setUser(res.data.user);
+      localStorage.setItem('pg_auth_user', JSON.stringify(res.data.user));
       await fetchCurrentUser();
       return { success: true };
     }
