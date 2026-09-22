@@ -83,7 +83,7 @@ export default function Profile() {
                 {displayName}
               </h2>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
-                <Badge variant={user?.role === 'admin' ? 'primary' : 'success'}>
+                <Badge variant={user?.role === 'admin' ? 'info' : 'success'}>
                   <Shield size={12} style={{ marginRight: '4px' }} />
                   {user?.role === 'admin' ? 'PG Owner / Admin' : 'Tenant'}
                 </Badge>
