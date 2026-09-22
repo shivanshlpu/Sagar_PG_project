@@ -133,6 +133,16 @@ router.patch('/settings/banking', authorize('admin'), validate(updateBankingSche
   }
 });
 
+// POST /settings/banking [Admin] (alias for PATCH)
+router.post('/settings/banking', authorize('admin'), validate(updateBankingSchema), async (req: Request, res: Response) => {
+  try {
+    const data = await settingsService.updateBankingSettings(req.user!.pgId, req.body, { id: req.user!.id, email: req.user!.email });
+    res.json({ success: true, data });
+  } catch (err) {
+    res.status(400).json({ success: false, error: (err as Error).message });
+  }
+});
+
 export default router;
 
 

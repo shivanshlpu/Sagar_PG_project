@@ -43,8 +43,8 @@ app.use(cors({
       ],
   credentials: true,
 }));
-app.use(express.json({ limit: '1mb' }));
-app.use(express.urlencoded({ extended: true, limit: '1mb' }));
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Anti-Slowloris / Hanging connection timeout (15 seconds)
 app.use((_req, res, next) => {
