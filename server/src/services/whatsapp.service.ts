@@ -263,12 +263,86 @@ export async function disconnectWhatsApp(): Promise<void> {
   }
 }
 
-export async function sendWhatsAppMessage(phone: string, text: string): Promise<void> {
-  if (connectionStatus !== 'connected' || !sock) {
-    throw new Error('WhatsApp service is not connected');
+/**
+ * Normalizes phone numbers to standard international format (without + or spaces).
+ * Automatically prefixes 10-digit Indian numbers with country code 91.
+ */
+export function normalizePhoneNumber(phone: string): string {
+  let clean = phone.replace(/\D/g, '');
+  if (clean.length === 10) {
+    clean = `91${clean}`;
+  } else if (clean.length === 11 && clean.startsWith('0')) {
+    clean = `91${clean.slice(1)}`;
+  }
+  return clean;
+}
+
+interface QueuedMessage {
+  id: string;
+  jid: string;
+  text: string;
+  resolve: () => void;
+  reject: (err: Error) => void;
+  enqueuedAt: number;
+}
+
+const messageQueue: QueuedMessage[] = [];
+let isProcessingQueue = false;
+
+// Max 3 messages per second = 350ms minimum gap between consecutive messages
+const MESSAGE_INTERVAL_MS = 350;
+
+async function processMessageQueue(): Promise<void> {
+  if (isProcessingQueue) return;
+  isProcessingQueue = true;
+
+  while (messageQueue.length > 0) {
+    const item = messageQueue.shift();
+    if (!item) break;
+
+    try {
+      if (connectionStatus !== 'connected' || !sock) {
+        throw new Error('WhatsApp service is not connected');
+      }
+
+      console.log(`[WhatsApp Queue] Sending to ${item.jid} (${messageQueue.length} pending in queue)`);
+      await sock.sendMessage(item.jid, { text: item.text });
+      console.log(`[WhatsApp Queue] Successfully sent to ${item.jid}`);
+      item.resolve();
+    } catch (err: any) {
+      console.error(`[WhatsApp Queue Error] Failed to send to ${item.jid}:`, err.message);
+      item.reject(err);
+    }
+
+    // Enforce rate limit (max 3 messages per second)
+    if (messageQueue.length > 0) {
+      await new Promise((resolve) => setTimeout(resolve, MESSAGE_INTERVAL_MS));
+    }
   }
 
-  const cleanPhone = phone.replace(/\D/g, '');
+  isProcessingQueue = false;
+}
+
+export async function sendWhatsAppMessage(phone: string, text: string): Promise<void> {
+  if (connectionStatus !== 'connected' || !sock) {
+    throw new Error('WhatsApp service is not connected. Please ensure WhatsApp is connected in Settings.');
+  }
+
+  const cleanPhone = normalizePhoneNumber(phone);
   const jid = `${cleanPhone}@s.whatsapp.net`;
-  await sock.sendMessage(jid, { text });
+
+  return new Promise<void>((resolve, reject) => {
+    messageQueue.push({
+      id: Math.random().toString(36).substring(2, 9),
+      jid,
+      text,
+      resolve,
+      reject,
+      enqueuedAt: Date.now(),
+    });
+
+    processMessageQueue().catch((err) => {
+      console.error('[WhatsApp Queue Error]:', err);
+    });
+  });
 }

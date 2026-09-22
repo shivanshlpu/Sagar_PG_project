@@ -357,7 +357,7 @@ export async function getMe(userId: string) {
 // ── Password Reset (WhatsApp OTP) ──────────────────────────────
 
 import { generateOTP, verifyOTP } from './otp.service';
-import { sendWhatsAppMessage, getWhatsAppStatus } from './whatsapp.service';
+import { sendWhatsAppMessage, getWhatsAppStatus, normalizePhoneNumber } from './whatsapp.service';
 
 /**
  * Initiate forgot-password flow:
@@ -395,15 +395,17 @@ export async function forgotPassword(email: string) {
     throw new Error('No phone number linked to this account. Contact the PG admin.');
   }
 
-  const cleanPhone = phone.replace(/\D/g, '');
-  const otp = generateOTP(cleanPhone);
+  const normalizedPhone = normalizePhoneNumber(phone);
+  const otp = generateOTP(normalizedPhone);
+
+  console.log(`[ForgotPassword] Sending OTP to ${normalizedPhone} for user ${email}`);
 
   // Send OTP via WhatsApp
   const message = `🔐 *Sagar PG — Password Reset*\n\nYour OTP is: *${otp}*\n\nThis code expires in 5 minutes. Do not share it with anyone.`;
-  await sendWhatsAppMessage(cleanPhone, message);
+  await sendWhatsAppMessage(normalizedPhone, message);
 
-  // Mask phone for frontend display
-  const masked = cleanPhone.slice(0, 2) + '****' + cleanPhone.slice(-4);
+  // Mask phone for frontend display (e.g. +91 90****9694)
+  const masked = `+${normalizedPhone.slice(0, 2)} ${normalizedPhone.slice(2, 4)}****${normalizedPhone.slice(-4)}`;
   return { sent: true, maskedPhone: masked };
 }
 
@@ -429,8 +431,8 @@ export async function verifyOtpAndGetResetToken(email: string, otp: string) {
 
   if (!phone) throw new Error('Invalid request');
 
-  const cleanPhone = phone.replace(/\D/g, '');
-  const valid = verifyOTP(cleanPhone, otp);
+  const normalizedPhone = normalizePhoneNumber(phone);
+  const valid = verifyOTP(normalizedPhone, otp);
   if (!valid) throw new Error('Invalid OTP. Please try again.');
 
   // Issue a short-lived reset token (10 min)
