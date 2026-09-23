@@ -34,28 +34,15 @@ export async function getPG(pgId: string): Promise<PG> {
   }
 
   // 2. Fallback for owner_name from admins table if still unset
-  if (!pgRecord.owner_name) {
+  if (!pgRecord.owner_name && pgRecord.owner_id) {
     try {
-      if (pgRecord.owner_id) {
-        const { data: adminData } = await supabaseAdmin
-          .from('admins')
-          .select('full_name')
-          .eq('id', pgRecord.owner_id)
-          .maybeSingle();
-        if (adminData?.full_name) {
-          pgRecord.owner_name = adminData.full_name;
-        }
-      }
-      if (!pgRecord.owner_name) {
-        const { data: adminByPg } = await supabaseAdmin
-          .from('admins')
-          .select('full_name')
-          .eq('pg_id', pgId)
-          .limit(1)
-          .maybeSingle();
-        if (adminByPg?.full_name) {
-          pgRecord.owner_name = adminByPg.full_name;
-        }
+      const { data: adminData } = await supabaseAdmin
+        .from('admins')
+        .select('full_name')
+        .eq('id', pgRecord.owner_id)
+        .maybeSingle();
+      if (adminData?.full_name) {
+        pgRecord.owner_name = adminData.full_name;
       }
     } catch (err) {
       console.warn('[pg.service] Notice fetching admin full_name fallback:', err);

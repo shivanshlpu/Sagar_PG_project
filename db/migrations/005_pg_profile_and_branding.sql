@@ -13,13 +13,6 @@ FROM admins
 WHERE pgs.owner_id = admins.id
   AND (pgs.owner_name IS NULL OR pgs.owner_name = '');
 
--- Fallback backfill: if owner_name still null, attempt matching admins by pg_id
-UPDATE pgs
-SET owner_name = admins.full_name
-FROM admins
-WHERE pgs.id = admins.pg_id
-  AND (pgs.owner_name IS NULL OR pgs.owner_name = '');
-
 COMMENT ON COLUMN pgs.owner_name IS 'Full legal or business name of the PG owner / administrator';
 COMMENT ON COLUMN pgs.tagline IS 'Branding tagline displayed beneath logo/title on invoices and tenant portal';
 COMMENT ON COLUMN pgs.logo_url IS 'Base64 data URL or storage URL of the PG logo for invoices and branding';
