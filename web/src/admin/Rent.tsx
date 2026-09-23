@@ -30,7 +30,7 @@ export default function AdminRent() {
   const [monthFilter, setMonthFilter] = React.useState(currentMonthStr);
   const [statusFilter, setStatusFilter] = React.useState('');
   const [selectedBill, setSelectedBill] = React.useState<RentRecord | null>(null);
-  const [isSendingWa, setIsSendingWa] = React.useState(false);
+  const [sendingWaId, setSendingWaId] = React.useState<string | null>(null);
   const { showToast } = useToast();
 
   React.useEffect(() => { loadRecords(); }, [monthFilter, statusFilter]);
@@ -67,7 +67,7 @@ export default function AdminRent() {
 
   async function sendWhatsAppBill(rentId: string) {
     try {
-      setIsSendingWa(true);
+      setSendingWaId(rentId);
       const res = await apiPost(`/rent/${rentId}/send-bill`, {});
       if (res.success) {
         showToast('Rent bill dispatched to tenant WhatsApp successfully!');
@@ -77,7 +77,7 @@ export default function AdminRent() {
     } catch (err: any) {
       showToast(err?.message || 'Failed to send bill', 'error');
     } finally {
-      setIsSendingWa(false);
+      setSendingWaId(null);
     }
   }
 
@@ -176,7 +176,14 @@ export default function AdminRent() {
               <Button size="sm" variant="secondary" onClick={() => setSelectedBill(record)}>
                 <FileText size={14} /> View Bill
               </Button>
-              <Button size="sm" variant="secondary" onClick={() => sendWhatsAppBill(record.id)} isLoading={isSendingWa} title="Send on WhatsApp">
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => sendWhatsAppBill(record.id)}
+                isLoading={sendingWaId === record.id}
+                disabled={Boolean(sendingWaId && sendingWaId !== record.id)}
+                title="Send on WhatsApp"
+              >
                 <Send size={14} /> Send WhatsApp
               </Button>
               {record.status !== 'paid' && (
@@ -205,9 +212,9 @@ export default function AdminRent() {
             </button>
             <button
               onClick={() => sendWhatsAppBill(row.id)}
-              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-primary)', display: 'flex', alignItems: 'center', padding: '4px', borderRadius: 'var(--radius-sm)' }}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-primary)', display: 'flex', alignItems: 'center', padding: '4px', borderRadius: 'var(--radius-sm)', opacity: sendingWaId && sendingWaId !== row.id ? 0.5 : 1 }}
               title="Send Bill on WhatsApp"
-              disabled={isSendingWa}
+              disabled={Boolean(sendingWaId)}
             >
               <Send size={15} />
             </button>
@@ -260,7 +267,8 @@ export default function AdminRent() {
                 <Button
                   variant="secondary"
                   onClick={() => sendWhatsAppBill(selectedBill.id)}
-                  isLoading={isSendingWa}
+                  isLoading={sendingWaId === selectedBill.id}
+                  disabled={Boolean(sendingWaId && sendingWaId !== selectedBill.id)}
                   style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
                 >
                   <Send size={15} /> Send on WhatsApp

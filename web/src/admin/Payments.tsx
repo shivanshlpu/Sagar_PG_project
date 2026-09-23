@@ -25,7 +25,7 @@ export default function AdminPayments() {
   const [isLoading, setIsLoading] = React.useState(true);
   const [statusFilter, setStatusFilter] = React.useState('');
   const [selectedReceipt, setSelectedReceipt] = React.useState<Payment | null>(null);
-  const [isSendingWa, setIsSendingWa] = React.useState(false);
+  const [sendingWaId, setSendingWaId] = React.useState<string | null>(null);
 
   // Manual payment recording modal state
   const [showRecordModal, setShowRecordModal] = React.useState(false);
@@ -143,7 +143,7 @@ export default function AdminPayments() {
 
   async function sendWhatsAppReceipt(paymentId: string) {
     try {
-      setIsSendingWa(true);
+      setSendingWaId(paymentId);
       const res = await apiPost(`/payments/${paymentId}/send-receipt`, {});
       if (res.success) {
         showToast('Receipt sent to tenant WhatsApp successfully!');
@@ -153,7 +153,7 @@ export default function AdminPayments() {
     } catch (err: any) {
       showToast(err?.message || 'Failed to send receipt', 'error');
     } finally {
-      setIsSendingWa(false);
+      setSendingWaId(null);
     }
   }
 
@@ -280,7 +280,14 @@ export default function AdminPayments() {
               <Button size="sm" variant="secondary" onClick={() => setSelectedReceipt(payment)}>
                 <Receipt size={14} /> Receipt
               </Button>
-              <Button size="sm" variant="secondary" onClick={() => sendWhatsAppReceipt(payment.id)} isLoading={isSendingWa} title="Send on WhatsApp">
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => sendWhatsAppReceipt(payment.id)}
+                isLoading={sendingWaId === payment.id}
+                disabled={Boolean(sendingWaId && sendingWaId !== payment.id)}
+                title="Send on WhatsApp"
+              >
                 <Send size={14} /> Send WhatsApp
               </Button>
               {payment.status === 'submitted' && (
@@ -307,9 +314,9 @@ export default function AdminPayments() {
             </button>
             <button
               onClick={() => sendWhatsAppReceipt(row.id)}
-              style={{ ...iconBtnStyle, color: 'var(--color-primary)' }}
+              style={{ ...iconBtnStyle, color: 'var(--color-primary)', opacity: sendingWaId && sendingWaId !== row.id ? 0.5 : 1 }}
               title="Send Receipt on WhatsApp"
-              disabled={isSendingWa}
+              disabled={Boolean(sendingWaId)}
             >
               <Send size={15} />
             </button>
@@ -363,7 +370,8 @@ export default function AdminPayments() {
                 <Button
                   variant="secondary"
                   onClick={() => sendWhatsAppReceipt(selectedReceipt.id)}
-                  isLoading={isSendingWa}
+                  isLoading={sendingWaId === selectedReceipt.id}
+                  disabled={Boolean(sendingWaId && sendingWaId !== selectedReceipt.id)}
                   style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
                 >
                   <Send size={15} /> Send on WhatsApp
