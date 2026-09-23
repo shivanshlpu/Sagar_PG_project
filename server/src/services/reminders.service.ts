@@ -110,8 +110,8 @@ export async function checkAndSendRentReminders(targetPgId?: string): Promise<{
         continue;
       }
 
-      // Stagger interval: 2 seconds per tenant to ensure users receive messages at different times
-      const staggerDelayMs = staggerIndex * 2000;
+      // Anti-Spam Stagger: 4-5 seconds per tenant to ensure messages are never blasted simultaneously
+      const staggerDelayMs = staggerIndex * 4000;
       staggerIndex++;
 
       const formattedAmount = (record.total_due_paise / 100).toLocaleString('en-IN');

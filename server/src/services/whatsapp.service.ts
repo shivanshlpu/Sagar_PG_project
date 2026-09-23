@@ -430,9 +430,6 @@ interface QueuedMessage {
 const messageQueue: QueuedMessage[] = [];
 let isProcessingQueue = false;
 
-// Max 3 messages per second = 350ms minimum gap between consecutive messages
-const MESSAGE_INTERVAL_MS = 350;
-
 /**
  * Decodes a base64 Data URL (e.g. data:image/png;base64,...) or raw base64 string into a Buffer.
  */
@@ -463,6 +460,13 @@ async function processMessageQueue(): Promise<void> {
         throw new Error('WhatsApp service is not connected');
       }
 
+      // Anti-Spam: Simulate natural human typing presence before dispatching
+      try {
+        await sock.sendPresenceUpdate('composing', item.jid);
+        await new Promise((r) => setTimeout(r, 1000 + Math.floor(Math.random() * 800)));
+        await sock.sendPresenceUpdate('paused', item.jid);
+      } catch {}
+
       console.log(`[WhatsApp Queue] Sending to ${item.jid} (${messageQueue.length} pending in queue, hasImage: ${Boolean(item.imageBuffer)})`);
       if (item.imageBuffer) {
         try {
@@ -485,9 +489,10 @@ async function processMessageQueue(): Promise<void> {
       item.reject(err);
     }
 
-    // Enforce rate limit (max 3 messages per second)
+    // Anti-Ban & Anti-Spam: Enforce natural human-like jitter delay (2.5s – 4.5s) between consecutive messages
     if (messageQueue.length > 0) {
-      await new Promise((resolve) => setTimeout(resolve, MESSAGE_INTERVAL_MS));
+      const naturalDelay = 2500 + Math.floor(Math.random() * 2000);
+      await new Promise((resolve) => setTimeout(resolve, naturalDelay));
     }
   }
 
