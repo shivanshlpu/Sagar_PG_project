@@ -138,20 +138,36 @@ export async function api<T = unknown>(
     delete headers['Content-Type'];
   }
 
-  let res = await fetch(`${API_URL}${endpoint}`, {
-    ...options,
-    headers,
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${API_URL}${endpoint}`, {
+      ...options,
+      headers,
+    });
+  } catch (netErr: any) {
+    console.warn(`[API] Network error fetching ${endpoint}:`, netErr?.message || netErr);
+    return {
+      success: false,
+      error: 'Cannot connect to server. Please ensure the backend server is running.',
+    };
+  }
 
   // Auto-refresh on 401
   if (res.status === 401 && (refreshToken || localStorage.getItem('refreshToken'))) {
     const refreshed = await refreshAccessToken();
     if (refreshed && accessToken) {
       headers['Authorization'] = `Bearer ${accessToken}`;
-      res = await fetch(`${API_URL}${endpoint}`, {
-        ...options,
-        headers,
-      });
+      try {
+        res = await fetch(`${API_URL}${endpoint}`, {
+          ...options,
+          headers,
+        });
+      } catch (retryErr: any) {
+        return {
+          success: false,
+          error: 'Failed to reconnect after refreshing token.',
+        };
+      }
     }
   }
 

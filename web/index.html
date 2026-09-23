@@ -19,13 +19,27 @@
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
     <script>
-      // Only register service worker on HTTPS (production) to avoid breaking Vite local dev
-      if ('serviceWorker' in navigator && (window.location.protocol === 'https:' || window.location.hostname === 'localhost' && window.location.port === '4173')) {
-        window.addEventListener('load', () => {
-          navigator.serviceWorker.register('/sw.js').catch((err) => {
-            console.log('SW registration failed: ', err);
+      // In local development, proactively unregister any previously cached service workers and wipe stale caches
+      if ('serviceWorker' in navigator) {
+        if (window.location.hostname === 'localhost' && window.location.port !== '4173') {
+          navigator.serviceWorker.getRegistrations().then((registrations) => {
+            for (const registration of registrations) {
+              registration.unregister();
+              console.log('[Dev] Unregistered stale service worker on localhost');
+            }
           });
-        });
+          if ('caches' in window) {
+            caches.keys().then((keys) => {
+              keys.forEach((key) => caches.delete(key));
+            });
+          }
+        } else if (window.location.protocol === 'https:' || (window.location.hostname === 'localhost' && window.location.port === '4173')) {
+          window.addEventListener('load', () => {
+            navigator.serviceWorker.register('/sw.js').catch((err) => {
+              console.log('SW registration failed: ', err);
+            });
+          });
+        }
       }
     </script>
   </body>

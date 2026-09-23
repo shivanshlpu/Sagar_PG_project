@@ -33,6 +33,9 @@ let connectedAt: string | null = null;
 let lastError: string | null = null;
 let isInitializing = false;
 let isSocketReadyForPairing = false;
+let reconnectAttempts = 0;
+const MAX_RECONNECT_ATTEMPTS = 5;
+let reconnectTimer: NodeJS.Timeout | null = null;
 
 // Callbacks waiting for socket ready / QR
 let qrResolvers: Array<(qr: string) => void> = [];
@@ -157,21 +160,6 @@ export async function initWhatsAppIfSessionExists(): Promise<void> {
 }
 
 export function getWhatsAppStatus(): WhatsAppState {
-  // If disconnected but a saved session exists, trigger automatic reconnection in the background
-  if (connectionStatus === 'disconnected' && !isInitializing) {
-    if (hasExistingSession()) {
-      console.log('[WhatsApp] Auto-connecting saved session on status check...');
-      connectWhatsApp().catch((err) => console.error('[WhatsApp Auto-Connect Error]:', err.message));
-    } else {
-      // Check if session can be restored from DB in background
-      restoreSessionFromDatabase().then((restored) => {
-        if (restored && connectionStatus === 'disconnected' && !isInitializing) {
-          connectWhatsApp().catch((err) => console.error('[WhatsApp Auto-Connect Error]:', err.message));
-        }
-      }).catch(() => {});
-    }
-  }
-
   const phone = connectedPhone || (connectionStatus === 'connected' ? getSavedPhone() : null);
 
   return {
@@ -268,18 +256,37 @@ export async function connectWhatsApp(): Promise<WhatsAppState> {
         pairingCode = null;
         isSocketReadyForPairing = false;
         lastError = lastDisconnect?.error?.message || 'Connection closed';
-        console.log(`[WhatsApp] Closed (${statusCode}). Reconnecting: ${shouldReconnect}`);
+        console.log(`[WhatsApp] Closed (${statusCode}). Reconnecting: ${shouldReconnect} (attempt ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`);
 
-        if (shouldReconnect) {
-          setTimeout(() => {
-            connectWhatsApp().catch((err) => console.error('[WhatsApp Reconnect Error]:', err.message));
-          }, isRestartRequired ? 1000 : 5000);
-        } else if (hasExistingSession() && !isLoggedOut) {
-          setTimeout(() => {
-            connectWhatsApp().catch((err) => console.error('[WhatsApp Reconnect Error]:', err.message));
-          }, 5000);
+        if (reconnectTimer) {
+          clearTimeout(reconnectTimer);
+          reconnectTimer = null;
+        }
+
+        if (isLoggedOut) {
+          reconnectAttempts = 0;
+          console.log('[WhatsApp] Session logged out. Discontinuing reconnection.');
+          return;
+        }
+
+        if (shouldReconnect || hasExistingSession()) {
+          if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+            reconnectAttempts++;
+            const delay = isRestartRequired ? 1500 : Math.min(2000 * Math.pow(2, reconnectAttempts), 30000);
+            console.log(`[WhatsApp] Scheduling reconnection attempt ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS} in ${delay}ms...`);
+            reconnectTimer = setTimeout(() => {
+              connectWhatsApp().catch((err) => console.error('[WhatsApp Reconnect Error]:', err.message));
+            }, delay);
+          } else {
+            console.warn('[WhatsApp] Max reconnection attempts reached. Pausing auto-reconnect until manual retry.');
+          }
         }
       } else if (connection === 'open') {
+        reconnectAttempts = 0;
+        if (reconnectTimer) {
+          clearTimeout(reconnectTimer);
+          reconnectTimer = null;
+        }
         connectionStatus = 'connected';
         currentQr = null;
         pairingCode = null;
