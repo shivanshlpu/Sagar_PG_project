@@ -7,7 +7,13 @@
  * 3. Works seamlessly on desktop and mobile browsers.
  */
 
-export function printElement(elementId: string, title: string = 'Document') {
+export interface PrintOptions {
+  orientation?: 'portrait' | 'landscape';
+  maxWidth?: string;
+  margin?: string;
+}
+
+export function printElement(elementId: string, title: string = 'Document', options?: PrintOptions) {
   const element = document.getElementById(elementId);
   if (!element) {
     window.print();
@@ -30,6 +36,11 @@ export function printElement(elementId: string, title: string = 'Document') {
     return;
   }
 
+  const isLandscape = options?.orientation === 'landscape';
+  const pageMargin = options?.margin || (isLandscape ? '8mm 10mm' : '15mm 20mm');
+  const maxWidth = options?.maxWidth || (isLandscape ? '100%' : '680px');
+  const containerPadding = isLandscape ? '6px 0' : '20px 0';
+
   // Inject crisp print CSS & target HTML
   doc.open();
   doc.write(`
@@ -43,8 +54,8 @@ export function printElement(elementId: string, title: string = 'Document') {
         <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
         <style>
           @page {
-            size: auto;
-            margin: 15mm 20mm;
+            size: ${isLandscape ? 'A4 landscape' : 'auto'};
+            margin: ${pageMargin};
           }
           * {
             box-sizing: border-box;
@@ -54,10 +65,11 @@ export function printElement(elementId: string, title: string = 'Document') {
           body {
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             background: #ffffff !important;
-            color: #111827 !important;
+            color: #0f172a !important;
             padding: 0;
             margin: 0;
-            line-height: 1.5;
+            width: 100%;
+            line-height: 1.45;
             -webkit-print-color-adjust: exact !important;
             print-color-adjust: exact !important;
           }
@@ -68,6 +80,12 @@ export function printElement(elementId: string, title: string = 'Document') {
             width: 100%;
             border-collapse: collapse;
           }
+          thead {
+            display: table-header-group;
+          }
+          tr {
+            page-break-inside: avoid;
+          }
           th, td {
             text-align: left;
           }
@@ -77,7 +95,7 @@ export function printElement(elementId: string, title: string = 'Document') {
         </style>
       </head>
       <body>
-        <div style="max-width: 680px; margin: 0 auto; padding: 20px 0;">
+        <div style="max-width: ${maxWidth}; margin: 0 auto; padding: ${containerPadding}; width: 100%;">
           ${element.innerHTML}
         </div>
       </body>
