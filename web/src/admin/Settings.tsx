@@ -1411,9 +1411,14 @@ export default function AdminSettings() {
                     </div>
                   )}
                   <p style={{ margin: '0 0 6px', fontWeight: 600, color: '#FFFFFF' }}>🔔 Sagar PG — Rent Payment Reminder</p>
-                  <p style={{ margin: '0 0 6px' }}>Dear Resident,</p>
-                  <p style={{ margin: '0 0 6px' }}>This is a friendly reminder that your rent is due.</p>
-                  <p style={{ margin: '0 0 6px' }}>💰 <strong>Amount Due:</strong> ₹8,500<br />📅 <strong>Due Date:</strong> 05-10-2026</p>
+                  <p style={{ margin: '0 0 6px' }}>Dear <strong>Rahul Sharma</strong>,</p>
+                  <p style={{ margin: '0 0 6px' }}>This is a friendly reminder that your rent for <strong>October 2026</strong> is due.</p>
+                  <p style={{ margin: '0 0 6px' }}>
+                    👤 <strong>Tenant:</strong> Rahul Sharma<br />
+                    🏠 <strong>Room:</strong> Room 202<br />
+                    💰 <strong>Amount Due:</strong> ₹8,500<br />
+                    📅 <strong>Due Date:</strong> 05-10-2026
+                  </p>
                   <div style={{ borderTop: '1px solid #2A3942', paddingTop: '6px', margin: '6px 0' }}>
                     <strong>Payment Options:</strong><br />
                     {banking.upi_id ? `• UPI ID: ${banking.upi_id}` : '• UPI ID: [Configured above]'}<br />

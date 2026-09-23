@@ -234,10 +234,11 @@ export async function sendPaymentReceiptWhatsApp(pgId: string, paymentId: string
   const receiptMsg =
     `🧾 *PAYMENT RECEIPT — ${pgName.toUpperCase()}*\n` +
     `━━━━━━━━━━━━━━━━━━━━\n` +
+    `Dear *${tenantName}*,\n\n` +
     `Receipt No: *${receiptNo}*\n` +
     `Date: *${dateFormatted}*\n` +
-    `Tenant: *${tenantName}*\n` +
-    `Room: *${roomNumber}*\n\n` +
+    `👤 *Tenant*: *${tenantName}*\n` +
+    `🏠 *Room*: *${roomNumber}*\n\n` +
     `💰 *Amount Paid: ${amountFormatted}*\n` +
     `Payment Method: *${(payment.payment_method || 'UPI').toUpperCase()}*\n` +
     `Status: *✅ VERIFIED & ACCEPTED*\n` +

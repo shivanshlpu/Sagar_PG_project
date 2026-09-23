@@ -100,14 +100,14 @@ async function seed() {
   // -------------------------------------------------------------
   console.log('\n3️⃣ Creating Tenants and assigning beds...');
   const tenantProfiles = [
-    { name: 'Aarav Patel', email: 'tenant@pg.com', phone: '9876543201', dep: 2000000, roomIdx: 0, bedIdx: 0, moveIn: '2026-01-10', address: 'B-12, Satellite, Ahmedabad, Gujarat', emName: 'Kirit Patel (Father)', emPhone: '9876543001' },
-    { name: 'Rohan Verma', email: 'rohan.v@gmail.com', phone: '9876543202', dep: 1800000, roomIdx: 1, bedIdx: 1, moveIn: '2026-02-01', address: '44, Civil Lines, Jaipur, Rajasthan', emName: 'Sunita Verma (Mother)', emPhone: '9876543002' },
-    { name: 'Priya Sharma', email: 'priya.s@gmail.com', phone: '9876543203', dep: 1800000, roomIdx: 1, bedIdx: 2, moveIn: '2026-02-15', address: '120/A, Gomti Nagar, Lucknow, UP', emName: 'Anil Sharma (Father)', emPhone: '9876543003' },
-    { name: 'Vikram Malhotra', email: 'vikram.m@gmail.com', phone: '9876543204', dep: 3000000, roomIdx: 3, bedIdx: 5, moveIn: '2026-03-01', address: 'Flat 402, Green Glen, Bangalore, Karnataka', emName: 'Rajiv Malhotra (Brother)', emPhone: '9876543004' },
-    { name: 'Ananya Iyer', email: 'ananya.i@gmail.com', phone: '9876543205', dep: 1500000, roomIdx: 4, bedIdx: 6, moveIn: '2026-04-10', address: 'Plot 18, Mylapore, Chennai, Tamil Nadu', emName: 'Lakshmi Iyer (Mother)', emPhone: '9876543005' },
-    { name: 'Siddharth Rao', email: 'siddharth.r@gmail.com', phone: '9876543206', dep: 1500000, roomIdx: 4, bedIdx: 7, moveIn: '2026-05-01', address: 'H.No 3-4-12, Kachiguda, Hyderabad, Telangana', emName: 'Venkat Rao (Father)', emPhone: '9876543006' },
-    { name: 'Neha Gupta', email: 'neha.g@gmail.com', phone: '9876543207', dep: 1900000, roomIdx: 5, bedIdx: 9, moveIn: '2026-06-01', address: 'Sector 21-C, Chandigarh', emName: 'Dinesh Gupta (Father)', emPhone: '9876543007' },
-    { name: 'Karan Singh', email: 'karan.s@gmail.com', phone: '9876543208', dep: 1200000, roomIdx: 7, bedIdx: 13, moveIn: '2026-07-01', address: '55, Model Town, Jalandhar, Punjab', emName: 'Harpreet Singh (Uncle)', emPhone: '9876543008' },
+    { name: 'Aarav Patel', email: 'tenant@pg.com', phone: '9009149694', dep: 2000000, roomIdx: 0, bedIdx: 0, moveIn: '2026-01-10', address: 'B-12, Satellite, Ahmedabad, Gujarat', emName: 'Kirit Patel (Father)', emPhone: '9009149694' },
+    { name: 'Rohan Verma', email: 'rohan.v@gmail.com', phone: '9009149694', dep: 1800000, roomIdx: 1, bedIdx: 1, moveIn: '2026-02-01', address: '44, Civil Lines, Jaipur, Rajasthan', emName: 'Sunita Verma (Mother)', emPhone: '9009149694' },
+    { name: 'Priya Sharma', email: 'priya.s@gmail.com', phone: '9009149694', dep: 1800000, roomIdx: 1, bedIdx: 2, moveIn: '2026-02-15', address: '120/A, Gomti Nagar, Lucknow, UP', emName: 'Anil Sharma (Father)', emPhone: '9009149694' },
+    { name: 'Vikram Malhotra', email: 'vikram.m@gmail.com', phone: '9009149694', dep: 3000000, roomIdx: 3, bedIdx: 5, moveIn: '2026-03-01', address: 'Flat 402, Green Glen, Bangalore, Karnataka', emName: 'Rajiv Malhotra (Brother)', emPhone: '9009149694' },
+    { name: 'Ananya Iyer', email: 'ananya.i@gmail.com', phone: '9009149694', dep: 1500000, roomIdx: 4, bedIdx: 6, moveIn: '2026-04-10', address: 'Plot 18, Mylapore, Chennai, Tamil Nadu', emName: 'Lakshmi Iyer (Mother)', emPhone: '9009149694' },
+    { name: 'Siddharth Rao', email: 'siddharth.r@gmail.com', phone: '9009149694', dep: 1500000, roomIdx: 4, bedIdx: 7, moveIn: '2026-05-01', address: 'H.No 3-4-12, Kachiguda, Hyderabad, Telangana', emName: 'Venkat Rao (Father)', emPhone: '9009149694' },
+    { name: 'Neha Gupta', email: 'neha.g@gmail.com', phone: '9009149694', dep: 1900000, roomIdx: 5, bedIdx: 9, moveIn: '2026-06-01', address: 'Sector 21-C, Chandigarh', emName: 'Dinesh Gupta (Father)', emPhone: '9009149694' },
+    { name: 'Karan Singh', email: 'karan.s@gmail.com', phone: '9009149694', dep: 1200000, roomIdx: 7, bedIdx: 13, moveIn: '2026-07-01', address: '55, Model Town, Jalandhar, Punjab', emName: 'Harpreet Singh (Uncle)', emPhone: '9009149694' },
   ];
 
   const createdTenants: any[] = [];

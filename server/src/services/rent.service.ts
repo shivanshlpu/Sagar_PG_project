@@ -535,10 +535,11 @@ export async function sendRentBillWhatsApp(pgId: string, rentRecordId: string) {
   const invoiceMsg =
     `📋 *RENT INVOICE — ${pgName.toUpperCase()}*\n` +
     `━━━━━━━━━━━━━━━━━━━━\n` +
+    `Dear *${tenantName}*,\n\n` +
     `Invoice: *${invoiceNo}*\n` +
     `Month: *${formatMonthMY(record.month)}*\n` +
-    `Tenant: *${tenantName}*\n` +
-    `Room: *${roomNumber}*\n\n` +
+    `👤 *Tenant*: *${tenantName}*\n` +
+    `🏠 *Room*: *${roomNumber}*\n\n` +
     `💵 *Total Due: ${totalAmount}*\n` +
     `Due Date: *${dueDateFormatted}*\n` +
     `Status: *${record.status.toUpperCase()}*\n` +

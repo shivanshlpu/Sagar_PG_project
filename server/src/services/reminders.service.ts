@@ -138,9 +138,10 @@ export async function checkAndSendRentReminders(targetPgId?: string): Promise<{
         `🔔 *${pg.name} — Rent Payment Reminder*\n\n` +
         `Dear *${tenant.full_name}*,\n\n` +
         `This is a friendly reminder that your rent for *${monthFormatted}* is due.\n\n` +
+        `👤 *Tenant*: *${tenant.full_name}*\n` +
+        `🏠 *Room*: ${room?.room_number || 'Assigned Room'}\n` +
         `💰 *Amount Due*: ₹${formattedAmount}\n` +
-        `📅 *Due Date*: ${dueDateFormatted}\n` +
-        `🏠 *Room*: ${room?.room_number || 'Assigned Room'}\n\n` +
+        `📅 *Due Date*: ${dueDateFormatted}\n\n` +
         (paymentDetails ? `*Payment Details*:\n${paymentDetails}\n` : '') +
         `After paying, enter your UTR / Reference ID in the resident portal so we can verify and mark it as paid.\n` +
         `_If you have already paid, kindly ignore this message._`;
