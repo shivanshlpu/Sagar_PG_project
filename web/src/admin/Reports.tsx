@@ -235,7 +235,6 @@ export default function AdminReports() {
                   <th style={thStyle}>Maintenance</th>
                   <th style={thStyle}>El. Units</th>
                   <th style={thStyle}>El. Bill</th>
-                  <th style={thStyle}>Late Fee</th>
                   <th style={{ ...thStyle, fontWeight: 700 }}>Total Due</th>
                   <th style={thStyle}>Status</th>
                   <th style={thStyle}>Payment Date</th>
@@ -260,7 +259,6 @@ export default function AdminReports() {
                       )}
                     </td>
                     <td style={{ ...tdStyle, fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(row.electricity_amount_paise)}</td>
-                    <td style={{ ...tdStyle, fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(row.late_fee_paise)}</td>
                     <td style={{ ...tdStyle, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: 'var(--color-primary)' }}>
                       {formatCurrency(row.total_due_paise)}
                     </td>
@@ -281,7 +279,6 @@ export default function AdminReports() {
                   <td style={{ ...tdStyle, fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(monthlyData.summary.total_maintenance_paise)}</td>
                   <td style={tdStyle}>{monthlyData.summary.total_units_consumed} units</td>
                   <td style={{ ...tdStyle, fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(monthlyData.summary.total_electricity_paise)}</td>
-                  <td style={{ ...tdStyle, fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(monthlyData.summary.total_late_fee_paise)}</td>
                   <td style={{ ...tdStyle, fontVariantNumeric: 'tabular-nums', color: 'var(--color-primary)' }}>{formatCurrency(monthlyData.summary.total_due_paise)}</td>
                   <td style={tdStyle} colSpan={2}>
                     <span style={{ color: 'var(--color-success)' }}>Collected: {formatCurrency(monthlyData.summary.total_collected_paise)}</span>

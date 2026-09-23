@@ -148,8 +148,9 @@ export async function getMonthlyBillingSummary(pgId: string, month: string) {
     const elUnits = elBill?.units_consumed ?? parsedNotes.electricity_units ?? 0;
     const elRate = elBill?.rate_per_unit_paise ?? parsedNotes.electricity_rate_per_unit_paise ?? 1200;
     const elAmount = elBill?.total_amount_paise ?? parsedNotes.electricity_amount_paise ?? (elUnits * elRate);
-    const lateFee = rec.late_fee_paise || 0;
-    const totalDue = parsedNotes.total_due_paise ?? rec.total_due_paise ?? (baseRent + maintenance + elAmount + lateFee);
+    const existingLate = parsedNotes.late_fee_paise || rec.late_fee_paise || 0;
+    const rawTotal = parsedNotes.total_due_paise ?? rec.total_due_paise ?? (baseRent + maintenance + elAmount);
+    const totalDue = Math.max(0, rawTotal - existingLate);
 
     return {
       id: rec.id,
@@ -164,7 +165,7 @@ export async function getMonthlyBillingSummary(pgId: string, month: string) {
       electricity_units: elUnits,
       electricity_rate_per_unit_paise: elRate,
       electricity_amount_paise: elAmount,
-      late_fee_paise: lateFee,
+      late_fee_paise: 0,
       total_due_paise: totalDue,
       status: rec.status,
       due_date: rec.due_date,
@@ -177,7 +178,7 @@ export async function getMonthlyBillingSummary(pgId: string, month: string) {
   const totalMaintenance = rows.reduce((s, r) => s + r.maintenance_paise, 0);
   const totalUnits = rows.reduce((s, r) => s + r.electricity_units, 0);
   const totalElectricity = rows.reduce((s, r) => s + r.electricity_amount_paise, 0);
-  const totalLateFee = rows.reduce((s, r) => s + r.late_fee_paise, 0);
+  const totalLateFee = 0;
   const totalDue = rows.reduce((s, r) => s + r.total_due_paise, 0);
   const totalCollected = rows.filter(r => r.status === 'paid').reduce((s, r) => s + r.total_due_paise, 0);
   const totalPending = rows.filter(r => ['pending', 'overdue'].includes(r.status)).reduce((s, r) => s + r.total_due_paise, 0);
@@ -231,7 +232,6 @@ export async function exportMonthlyBillingCsv(pgId: string, month: string): Prom
     'Units Consumed',
     'Rate/Unit (Rs.)',
     'Electricity Bill (Rs.)',
-    'Late Fee (Rs.)',
     'Total Due (Rs.)',
     'Status',
     'Paid Date',
@@ -250,7 +250,6 @@ export async function exportMonthlyBillingCsv(pgId: string, month: string): Prom
       r.electricity_units,
       toRupees(r.electricity_rate_per_unit_paise),
       toRupees(r.electricity_amount_paise),
-      toRupees(r.late_fee_paise),
       toRupees(r.total_due_paise),
       r.status.toUpperCase(),
       r.paid_date ? new Date(r.paid_date).toLocaleDateString('en-IN') : '-',
@@ -270,7 +269,6 @@ export async function exportMonthlyBillingCsv(pgId: string, month: string): Prom
     data.summary.total_units_consumed,
     '',
     toRupees(data.summary.total_electricity_paise),
-    toRupees(data.summary.total_late_fee_paise),
     toRupees(data.summary.total_due_paise),
     `Collected: Rs. ${toRupees(data.summary.total_collected_paise)} | Pending: Rs. ${toRupees(data.summary.total_pending_paise)}`,
     '',

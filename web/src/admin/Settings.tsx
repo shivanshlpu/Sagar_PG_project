@@ -1106,7 +1106,7 @@ export default function AdminSettings() {
             Automated Rent & Bill Reminders
           </h3>
           <p style={{ color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-sm)', marginBottom: '20px' }}>
-            Configure when reminders and late fees are automatically triggered for tenants.
+            Configure when rent and bill reminders are automatically triggered for tenants.
           </p>
 
           <FormField label="Rent Reminder Notification Day" hint="Day of the month to send early reminder (1-28)">

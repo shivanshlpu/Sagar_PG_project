@@ -202,7 +202,7 @@ async function seed() {
         // Current month: mix of paid, pending, overdue
         if (t.full_name === 'Rohan Verma') {
           status = 'overdue';
-          lateFee = 50000; // Rs 500 late fee
+          lateFee = 0; // No late fee
           paidDate = null;
         } else if (t.full_name === 'Karan Singh' || t.full_name === 'Siddharth Rao') {
           status = 'pending';
@@ -220,12 +220,12 @@ async function seed() {
           room_id: t.room_id,
           month: m,
           rent_amount_paise: rentPaise,
-          late_fee_paise: lateFee,
+          late_fee_paise: 0,
           total_due_paise: totalDue,
           status,
           due_date: dueDate,
           paid_date: paidDate,
-          notes: status === 'overdue' ? 'Late fee applied after 5-day grace period' : 'Standard monthly rent',
+          notes: 'Standard monthly rent',
         }, { onConflict: 'tenant_id,month' })
         .select()
         .single();

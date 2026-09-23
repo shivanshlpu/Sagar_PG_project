@@ -432,23 +432,7 @@ export default function TenantDashboard() {
               </div>
             </div>
 
-            {/* Row 4: Late Fee (if any) */}
-            {(current?.late_fee_paise || 0) > 0 && (
-              <div style={breakdownRowStyle}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <AlertCircle size={16} style={{ color: 'var(--color-danger)' }} />
-                  <div>
-                    <div style={{ fontWeight: 600, fontSize: 'var(--font-size-sm)', color: 'var(--color-danger)' }}>Late Fee</div>
-                    <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>Overdue payment penalty</div>
-                  </div>
-                </div>
-                <div style={{ fontWeight: 600, color: 'var(--color-danger)', fontVariantNumeric: 'tabular-nums' }}>
-                  {formatCurrency(current?.late_fee_paise || 0)}
-                </div>
-              </div>
-            )}
-
-            {/* Row 5: Total Summary */}
+            {/* Row 4: Total Summary */}
             <div style={{ ...breakdownRowStyle, backgroundColor: 'var(--color-bg-surface-alt)', borderTop: '2px solid var(--color-border)' }}>
               <div style={{ fontWeight: 700, fontSize: 'var(--font-size-base)' }}>Total Balance Due</div>
               <div style={{ fontWeight: 800, fontSize: 'var(--font-size-md)', color: isPaid ? 'var(--color-success)' : 'var(--color-primary)', fontVariantNumeric: 'tabular-nums' }}>
