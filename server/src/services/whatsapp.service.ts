@@ -669,63 +669,64 @@ async function processSessionQueue(session: WhatsAppSession): Promise<void> {
   session.isProcessingQueue = false;
 }
 
+export interface SendWhatsAppOptions {
+  pgId: string; // MANDATORY: Cross-tenant isolation requires strict PG binding
+  purpose?: string; // e.g. 'PASSWORD_RESET_OTP', 'RENT_REMINDER', 'INVOICE'
+  imageBuffer?: Buffer | null;
+}
+
 /**
  * Dispatches an outbound WhatsApp message.
- * Dynamically routes to the session matching options.pgId.
- * Falls back to 'default' or any active session if no specific session is bound.
+ * STRICT MULTI-TENANT ISOLATION:
+ * 1. options.pgId is strictly mandatory. If missing or empty, rejects immediately.
+ * 2. Routes ONLY to the session bound to options.pgId.
+ * 3. NEVER falls back to 'default' or another PG's session.
+ * 4. If target PG session is not connected, fails safely with controlled error.
  */
 export async function sendWhatsAppMessage(
   phone: string,
   text: string,
-  options?: {
-    pgId?: string;
-    imageBuffer?: Buffer | null;
-  }
+  options: SendWhatsAppOptions
 ): Promise<void> {
-  const targetPgId = options?.pgId;
-  let session: WhatsAppSession | undefined;
+  if (!options || !options.pgId || typeof options.pgId !== 'string' || !options.pgId.trim()) {
+    throw new Error('[WhatsApp Security] Cross-tenant isolation violation: pgId is mandatory for all outbound messages.');
+  }
 
-  // 1. Try specified pgId session
-  if (targetPgId) {
-    session = sessions.get(targetPgId);
-    if (!session || session.status !== 'connected' || !session.sock) {
-      if (hasExistingSession(targetPgId)) {
-        try {
-          await connectWhatsApp(targetPgId);
-          session = sessions.get(targetPgId);
-        } catch {}
+  const targetPgId = options.pgId.trim();
+  let session = sessions.get(targetPgId);
+
+  // If session is registered but not connected, attempt auto-reconnect if session files exist
+  if (!session || session.status !== 'connected' || !session.sock) {
+    if (hasExistingSession(targetPgId)) {
+      try {
+        console.log(`[WhatsApp ${targetPgId}] Attempting auto-reconnect for outbound message (${options.purpose || 'general'})...`);
+        await connectWhatsApp(targetPgId);
+        session = sessions.get(targetPgId);
+      } catch (reconnErr: any) {
+        console.warn(`[WhatsApp ${targetPgId}] Reconnect failed:`, reconnErr.message);
       }
     }
   }
 
-  // 2. Fallback to default session or first connected session
+  // Strict Fail-Safe: If session is still not connected, DO NOT FALL BACK to any other session!
   if (!session || session.status !== 'connected' || !session.sock) {
-    session = sessions.get('default');
-    if (!session || session.status !== 'connected' || !session.sock) {
-      for (const s of sessions.values()) {
-        if (s.status === 'connected' && s.sock) {
-          session = s;
-          break;
-        }
-      }
-    }
-  }
-
-  if (!session || session.status !== 'connected' || !session.sock) {
-    throw new Error(
-      `WhatsApp service is not connected${targetPgId ? ` for PG [${targetPgId}]` : ''}. Please connect WhatsApp in Settings.`
-    );
+    const errorMsg = `WhatsApp service is not connected for PG [${targetPgId}]. Please connect WhatsApp in Settings.`;
+    console.error(`[WhatsApp Routing Error] ${errorMsg} (Recipient: ${normalizePhoneNumber(phone).slice(0, 4)}****)`);
+    throw new Error(errorMsg);
   }
 
   const cleanPhone = normalizePhoneNumber(phone);
   const jid = `${cleanPhone}@s.whatsapp.net`;
+
+  // Audit log dispatch (no sensitive message content logged)
+  console.log(`[WhatsApp Dispatch Audit] PG: [${targetPgId}] | Recipient: ${cleanPhone.slice(0, 4)}****${cleanPhone.slice(-4)} | Purpose: ${options.purpose || 'DIRECT_MESSAGE'} | Time: ${new Date().toISOString()}`);
 
   return new Promise<void>((resolve, reject) => {
     session!.messageQueue.push({
       id: Math.random().toString(36).substring(2, 9),
       jid,
       text,
-      imageBuffer: options?.imageBuffer || null,
+      imageBuffer: options.imageBuffer || null,
       resolve,
       reject,
       enqueuedAt: Date.now(),

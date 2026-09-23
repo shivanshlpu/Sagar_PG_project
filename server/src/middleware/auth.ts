@@ -95,3 +95,28 @@ export function requirePg(req: Request, res: Response, next: NextFunction): void
 
   next();
 }
+
+/**
+ * Middleware: Enforces that any requested pgId in route parameters, query, or body
+ * strictly matches the authenticated user's authoritative pgId.
+ * Prevents Admin 1 from accessing, modifying, or querying PG 2's resources.
+ */
+export function enforcePgBoundary(req: Request, res: Response, next: NextFunction): void {
+  if (!req.user) {
+    res.status(401).json({ success: false, error: 'Authentication required' });
+    return;
+  }
+
+  const requestedPgId = (req.params.pgId || req.query.pgId || req.body?.pgId) as string | undefined;
+
+  // If a specific pgId was requested, it MUST match the user's authoritative pgId
+  if (requestedPgId && req.user.pgId && requestedPgId.trim() !== req.user.pgId.trim()) {
+    res.status(403).json({
+      success: false,
+      error: '[Tenant Isolation Violation] You are not authorized to access or manage this PG.',
+    });
+    return;
+  }
+
+  next();
+}

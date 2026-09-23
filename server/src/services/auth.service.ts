@@ -387,109 +387,177 @@ export async function getMe(userId: string) {
   return { ...userData.user, role };
 }
 
-// ── Password Reset (WhatsApp OTP) ──────────────────────────────
+// ── Password Reset (Multi-PG Isolated WhatsApp OTP) ──────────────
 
-import { generateOTP, verifyOTP } from './otp.service';
+import { createOtpRequest, verifyOtpRequest } from './otp.service';
 import { sendWhatsAppMessage, getWhatsAppStatus, normalizePhoneNumber } from './whatsapp.service';
 
-/**
- * Initiate forgot-password flow:
- *  1. Find the user by email
- *  2. Look up their phone number from admins or tenants table
- *  3. Generate OTP and send via WhatsApp
- */
-export async function forgotPassword(email: string) {
-  // Check WhatsApp is connected
-  const waStatus = getWhatsAppStatus();
-  if (waStatus.status !== 'connected') {
-    throw new Error('WhatsApp service is not connected. Please contact the PG admin.');
-  }
-
-  // Find user in Supabase Auth
-  const { data: listData } = await supabaseAdmin.auth.admin.listUsers({ perPage: 200 });
-  const user = listData?.users.find(u => u.email === email);
-  if (!user) {
-    // Don't reveal whether email exists — return silently
-    return { sent: true, maskedPhone: '******' };
-  }
-
-  const role = user.user_metadata?.role as string;
-  let phone: string | null = null;
-
-  if (role === 'admin') {
-    const { data } = await supabaseAdmin.from('admins').select('phone').eq('user_id', user.id).single();
-    phone = data?.phone || null;
-  } else {
-    const { data } = await supabaseAdmin.from('tenants').select('phone').eq('user_id', user.id).single();
-    phone = data?.phone || null;
-  }
-
-  if (!phone || phone.replace(/\D/g, '').length < 10) {
-    throw new Error('No phone number linked to this account. Contact the PG admin.');
-  }
-
-  const normalizedPhone = normalizePhoneNumber(phone);
-  const otp = generateOTP(normalizedPhone);
-
-  console.log(`[ForgotPassword] Sending OTP to ${normalizedPhone} for user ${email}`);
-
-  // Send OTP via WhatsApp
-  const message = `🔐 *Sagar PG — Password Reset*\n\nYour OTP is: *${otp}*\n\nThis code expires in 5 minutes. Do not share it with anyone.`;
-  await sendWhatsAppMessage(normalizedPhone, message);
-
-  // Mask phone for frontend display (e.g. +91 90****9694)
-  const masked = `+${normalizedPhone.slice(0, 2)} ${normalizedPhone.slice(2, 4)}****${normalizedPhone.slice(-4)}`;
-  return { sent: true, maskedPhone: masked };
+interface ResolvedUserContext {
+  userId: string;
+  pgId: string;
+  pgName: string;
+  phone: string;
+  fullName: string;
+  role: 'admin' | 'tenant';
 }
 
 /**
- * Verify the OTP and return a short-lived password-reset JWT.
+ * Authoritatively resolves user identity, PG association, phone, and role.
+ * Queries indexed database tables (tenants/admins -> pgs) instead of client input.
  */
-export async function verifyOtpAndGetResetToken(email: string, otp: string) {
-  // Find user → phone
-  const { data: listData } = await supabaseAdmin.auth.admin.listUsers({ perPage: 200 });
-  const user = listData?.users.find(u => u.email === email);
-  if (!user) throw new Error('Invalid request');
+async function resolveUserAndPgByEmail(email: string): Promise<ResolvedUserContext | null> {
+  const cleanEmail = email.toLowerCase().trim();
 
-  const role = user.user_metadata?.role as string;
-  let phone: string | null = null;
+  // 1. Try tenants table
+  const { data: tenant } = await supabaseAdmin
+    .from('tenants')
+    .select('id, user_id, full_name, phone, pg_id, status, pg:pgs(id, name)')
+    .eq('email', cleanEmail)
+    .maybeSingle();
 
-  if (role === 'admin') {
-    const { data } = await supabaseAdmin.from('admins').select('phone').eq('user_id', user.id).single();
-    phone = data?.phone || null;
-  } else {
-    const { data } = await supabaseAdmin.from('tenants').select('phone').eq('user_id', user.id).single();
-    phone = data?.phone || null;
+  if (tenant && tenant.user_id && tenant.pg_id) {
+    const pgName = (tenant.pg as any)?.name || 'PG Residency';
+    return {
+      userId: tenant.user_id,
+      pgId: tenant.pg_id,
+      pgName,
+      phone: tenant.phone || '',
+      fullName: tenant.full_name || 'Resident',
+      role: 'tenant',
+    };
   }
 
-  if (!phone) throw new Error('Invalid request');
+  // 2. Try admins table
+  const { data: admin } = await supabaseAdmin
+    .from('admins')
+    .select('id, user_id, full_name, phone, email')
+    .eq('email', cleanEmail)
+    .maybeSingle();
+
+  if (admin && admin.user_id) {
+    // Look up PG owned by this admin
+    const { data: pg } = await supabaseAdmin
+      .from('pgs')
+      .select('id, name')
+      .eq('owner_id', admin.id)
+      .order('created_at', { ascending: true })
+      .limit(1)
+      .maybeSingle();
+
+    if (pg) {
+      return {
+        userId: admin.user_id,
+        pgId: pg.id,
+        pgName: pg.name || 'PG Management',
+        phone: admin.phone || '',
+        fullName: admin.full_name || 'PG Manager',
+        role: 'admin',
+      };
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Initiate forgot-password flow with strict Multi-PG isolation:
+ *  1. Authoritatively resolve user, PG context, and phone
+ *  2. Validate that the user's specific PG has an active WhatsApp connection
+ *  3. Generate a cryptographically hashed, PG-scoped OTP
+ *  4. Dispatch exclusively via the user's PG WhatsApp session (never default or another PG)
+ */
+export async function forgotPassword(email: string) {
+  const userContext = await resolveUserAndPgByEmail(email);
+
+  if (!userContext) {
+    // Anti-enumeration: Return generic success without revealing non-existent email
+    return { sent: true, maskedPhone: '******' };
+  }
+
+  const { userId, pgId, pgName, phone, fullName } = userContext;
+
+  if (!phone || phone.replace(/\D/g, '').length < 10) {
+    throw new Error(`No phone number linked to this account in ${pgName}. Please contact the PG manager.`);
+  }
+
+  // Verify that THIS PG's WhatsApp account is connected
+  const waStatus = getWhatsAppStatus(pgId);
+  if (waStatus.status !== 'connected') {
+    throw new Error(
+      `WhatsApp service is not connected for ${pgName}. Please contact your PG manager to connect WhatsApp.`
+    );
+  }
 
   const normalizedPhone = normalizePhoneNumber(phone);
-  const valid = verifyOTP(normalizedPhone, otp);
-  if (!valid) throw new Error('Invalid OTP. Please try again.');
 
-  // Issue a short-lived reset token (10 min)
+  // Generate cryptographically secure OTP bound to (userId, pgId, 'password_reset')
+  const otp = await createOtpRequest({
+    userId,
+    pgId,
+    phone: normalizedPhone,
+    purpose: 'password_reset',
+  });
+
+  console.log(`[ForgotPassword] Dispatching PG [${pgId} - ${pgName}] OTP to ${normalizedPhone.slice(0, 4)}****`);
+
+  // Build branded PG-specific message
+  const message =
+    `🔐 *${pgName} — Password Reset*\n\n` +
+    `Dear *${fullName}*,\n\n` +
+    `Your password reset OTP is: *${otp}*\n\n` +
+    `This code expires in 5 minutes. Do not share it with anyone.`;
+
+  // Dispatch strictly through the user's PG WhatsApp sender
+  await sendWhatsAppMessage(normalizedPhone, message, {
+    pgId,
+    purpose: 'PASSWORD_RESET_OTP',
+  });
+
+  // Mask phone for user feedback (e.g. +91 98****3210)
+  const masked = `+${normalizedPhone.slice(0, 2)} ${normalizedPhone.slice(2, 4)}****${normalizedPhone.slice(-4)}`;
+  return { sent: true, maskedPhone: masked, pgName };
+}
+
+/**
+ * Verifies the OTP within its strict PG boundary and returns a reset JWT.
+ */
+export async function verifyOtpAndGetResetToken(email: string, otp: string) {
+  const userContext = await resolveUserAndPgByEmail(email);
+  if (!userContext) throw new Error('Invalid request');
+
+  const { userId, pgId } = userContext;
+
+  const valid = await verifyOtpRequest({
+    userId,
+    pgId,
+    code: otp,
+    purpose: 'password_reset',
+  });
+
+  if (!valid) throw new Error('Invalid OTP. Please check the code and try again.');
+
+  // Issue a short-lived reset token (10 min) binding user ID and PG ID
   const resetToken = jwt.sign(
-    { id: user.id, email, type: 'password-reset' },
+    { id: userId, pgId, email: email.toLowerCase().trim(), type: 'password-reset' },
     env.JWT_SECRET,
     { expiresIn: '10m' }
   );
 
-  return { resetToken };
+  return { resetToken, pgName: userContext.pgName };
 }
 
 /**
- * Reset password using a valid reset token.
+ * Reset password using a validated, PG-bound reset token.
  */
 export async function resetPassword(resetToken: string, newPassword: string) {
-  let decoded: { id: string; type: string };
+  let decoded: { id: string; pgId: string; type: string };
   try {
     decoded = jwt.verify(resetToken, env.JWT_SECRET) as any;
   } catch {
     throw new Error('Reset link has expired. Please request a new OTP.');
   }
 
-  if (decoded.type !== 'password-reset') {
+  if (decoded.type !== 'password-reset' || !decoded.id || !decoded.pgId) {
     throw new Error('Invalid reset token.');
   }
 
@@ -498,6 +566,16 @@ export async function resetPassword(resetToken: string, newPassword: string) {
   });
 
   if (error) throw new Error('Failed to update password. Please try again.');
+
+  // Invalidate any remaining OTPs for this user and PG
+  try {
+    await supabaseAdmin
+      .from('otp_requests')
+      .update({ status: 'verified', updated_at: new Date().toISOString() })
+      .eq('user_id', decoded.id)
+      .eq('pg_id', decoded.pgId);
+  } catch {}
+
   return { success: true };
 }
 

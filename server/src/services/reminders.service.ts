@@ -1,6 +1,6 @@
 import { supabaseAdmin } from '../config/supabase';
 import { cache } from '../config/redis';
-import { sendWhatsAppMessage, decodeBase64Image } from './whatsapp.service';
+import { sendWhatsAppMessage, decodeBase64Image, getWhatsAppStatus } from './whatsapp.service';
 import { createNotification } from './notifications.service';
 import { getReminderSettings } from './settings.service';
 import { formatDateDMY, formatMonthMY } from '../utils/date';
@@ -67,7 +67,14 @@ export async function checkAndSendRentReminders(targetPgId?: string): Promise<{
   let totalSkippedNoPhone = 0;
 
   for (const pg of pgs) {
-    // 2. Fetch reminder settings & payment QR for this PG
+    // 2. Check if WhatsApp session for this PG is connected before processing
+    const waStatus = getWhatsAppStatus(pg.id);
+    if (waStatus.status !== 'connected') {
+      console.log(`[Reminders] Skipping rent reminder dispatch for PG [${pg.name} (${pg.id})] — WhatsApp is not connected.`);
+      continue;
+    }
+
+    // Fetch reminder settings & payment QR for this PG
     const reminderSettings = await getReminderSettings(pg.id);
     const rentReminderDay = reminderSettings.rent_reminder_day || 1;
 
@@ -119,9 +126,9 @@ export async function checkAndSendRentReminders(targetPgId?: string): Promise<{
         continue;
       }
 
-      // Deduplication key: strictly once per day per tenant (DD-MM-YYYY format)
+      // Deduplication key: strictly once per day per tenant, explicitly scoped by pg_id
       const todayDMY = formatDateDMY(now);
-      const dedupKey = `reminder:rent:${tenant.id}:${todayDMY}`;
+      const dedupKey = `reminder:rent:${pg.id}:${tenant.id}:${todayDMY}`;
       const isFirstToday = await cache.setIfNotExists(dedupKey, 'scheduled', 86400); // 24 hours
 
       if (!isFirstToday) {
@@ -192,10 +199,14 @@ export async function checkAndSendRentReminders(targetPgId?: string): Promise<{
         `After paying, enter your UTR / Reference ID in the resident portal so we can verify and mark it as paid.\n` +
         `_If you have already paid, kindly ignore this message._`;
 
-      // Schedule staggered dispatch
+      // Schedule staggered dispatch strictly bound to pg.id
       setTimeout(async () => {
         try {
-          await sendWhatsAppMessage(tenantPhone, reminderMessage, { pgId: pg.id, imageBuffer: qrBuffer });
+          await sendWhatsAppMessage(tenantPhone, reminderMessage, {
+            pgId: pg.id,
+            purpose: 'RENT_REMINDER',
+            imageBuffer: qrBuffer,
+          });
           console.log(`[Reminders] WhatsApp reminder sent to ${tenant.full_name} (${tenantPhone}) for ${monthFormatted} (hasQR: ${Boolean(qrBuffer)})`);
 
           // Mark as sent in deduplication cache
@@ -208,7 +219,7 @@ export async function checkAndSendRentReminders(targetPgId?: string): Promise<{
               title: 'Rent Payment Due',
               message: `Your rent of ₹${formattedAmount} for ${monthFormatted} is pending. Please complete the payment.`,
               type: 'rent_reminder',
-              metadata: { rentRecordId: record.id, month: record.month, totalDuePaise: record.total_due_paise },
+              metadata: { rentRecordId: record.id, month: record.month, totalDuePaise: record.total_due_paise, pgId: pg.id },
             }).catch(() => {});
           }
         } catch (err: any) {
