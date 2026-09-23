@@ -916,7 +916,7 @@ async function ensureDocumentsBucket() {
         if (ownerUser.phone) {
           const moveInFormatted = formatDateDMY(onboardingData.move_in_date);
           const alertMsg = `✅ *Tenant Onboarding Completed — Sagar PG*\n\nTenant: *${tenant.full_name}*\nRoom: *${room.room_number}* | Bed: *${bed.bed_number}*\nMove-in: *${moveInFormatted}*\n\nDocuments (Aadhaar & College ID) are ready for review in Admin Portal.`;
-          await sendWhatsAppMessage(ownerUser.phone, alertMsg);
+          await sendWhatsAppMessage(ownerUser.phone, alertMsg, { pgId });
         }
       }
     } catch (e: any) {

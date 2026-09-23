@@ -547,7 +547,7 @@ export async function sendRentBillWhatsApp(pgId: string, rentRecordId: string) {
     (paymentDetails ? `*Payment Details*:\n${paymentDetails}\n` : '') +
     `After paying, enter your UTR / Reference ID in the resident portal so we can verify and mark it as paid.`;
 
-  await sendWhatsAppMessage(record.tenant.phone, invoiceMsg, { imageBuffer: qrBuffer });
+  await sendWhatsAppMessage(record.tenant.phone, invoiceMsg, { pgId: record.pg_id, imageBuffer: qrBuffer });
   return { success: true, message: `Invoice sent to ${record.tenant.phone}` };
 }
 

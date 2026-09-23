@@ -245,7 +245,7 @@ export async function sendPaymentReceiptWhatsApp(pgId: string, paymentId: string
     `━━━━━━━━━━━━━━━━━━━━\n` +
     `Thank you! This is an immutable digital receipt recorded by ${pgName}.`;
 
-  await sendWhatsAppMessage(payment.tenant.phone, receiptMsg);
+  await sendWhatsAppMessage(payment.tenant.phone, receiptMsg, { pgId: payment.pg_id });
   return { success: true, message: `Receipt sent to ${payment.tenant.phone}` };
 }
 

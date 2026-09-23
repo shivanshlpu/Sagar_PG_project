@@ -103,7 +103,7 @@ app.use((err: Error, _req: express.Request, res: express.Response, _next: expres
   });
 });
 
-import { initWhatsAppIfSessionExists } from './services/whatsapp.service';
+import { initAllWhatsAppSessions } from './services/whatsapp.service';
 import { startReminderCron } from './services/reminders.service';
 
 // Keep-Alive Worker for free-tier hosting (e.g. Render / Railway)
@@ -127,7 +127,7 @@ function startKeepAlive() {
 app.listen(env.PORT, () => {
   console.log(`Server running on port ${env.PORT}`);
   console.log(`Environment: ${env.NODE_ENV}`);
-  initWhatsAppIfSessionExists().catch((err) => console.error('[WhatsApp Startup Error]:', err.message));
+  initAllWhatsAppSessions().catch((err) => console.error('[WhatsApp Multi-Session Startup Error]:', err.message));
   startKeepAlive();
   startReminderCron();
 });

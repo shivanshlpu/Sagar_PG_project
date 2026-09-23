@@ -142,7 +142,7 @@ export async function register(
 
             if (ownerUser.phone) {
               const alertMsg = `📢 *New Tenant Registration — Sagar PG*\n\nName: *${fullName}*\nPhone: *${phone || 'N/A'}*\nEmail: *${email}*\n\nPlease review in the Admin Portal.`;
-              await sendWhatsAppMessage(ownerUser.phone, alertMsg);
+              await sendWhatsAppMessage(ownerUser.phone, alertMsg, { pgId });
             }
           }
         } catch (e: any) {

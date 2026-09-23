@@ -1,6 +1,6 @@
 import { supabaseAdmin } from '../config/supabase';
 import { cache } from '../config/redis';
-import { sendWhatsAppMessage, getWhatsAppStatus, decodeBase64Image } from './whatsapp.service';
+import { sendWhatsAppMessage, decodeBase64Image } from './whatsapp.service';
 import { createNotification } from './notifications.service';
 import { getReminderSettings } from './settings.service';
 import { formatDateDMY, formatMonthMY } from '../utils/date';
@@ -42,10 +42,7 @@ export async function checkAndSendRentReminders(targetPgId?: string): Promise<{
     return { checked: 0, sent: 0, skippedAlreadySent: 0, skippedNoPhone: 0 };
   }
 
-  const waStatus = getWhatsAppStatus();
-  if (waStatus.status !== 'connected') {
-    console.log('[Reminders] WhatsApp is not connected. Skipping automated WhatsApp reminders.');
-  }
+
 
   // Current date strings (in IST / local)
   const now = new Date();
@@ -198,10 +195,8 @@ export async function checkAndSendRentReminders(targetPgId?: string): Promise<{
       // Schedule staggered dispatch
       setTimeout(async () => {
         try {
-          if (waStatus.status === 'connected') {
-            await sendWhatsAppMessage(tenantPhone, reminderMessage, { imageBuffer: qrBuffer });
-            console.log(`[Reminders] WhatsApp reminder sent to ${tenant.full_name} (${tenantPhone}) for ${monthFormatted} (hasQR: ${Boolean(qrBuffer)})`);
-          }
+          await sendWhatsAppMessage(tenantPhone, reminderMessage, { pgId: pg.id, imageBuffer: qrBuffer });
+          console.log(`[Reminders] WhatsApp reminder sent to ${tenant.full_name} (${tenantPhone}) for ${monthFormatted} (hasQR: ${Boolean(qrBuffer)})`);
 
           // Mark as sent in deduplication cache
           await cache.setWithExpiry(dedupKey, 'sent', 86400);

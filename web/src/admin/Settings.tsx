@@ -432,6 +432,7 @@ export default function AdminSettings() {
       account_holder_name: string;
       payment_qr: string | null;
     }>('/settings/banking');
+
     if (res.success && res.data) {
       setBanking({
         upi_id: res.data.upi_id || '',
@@ -441,26 +442,70 @@ export default function AdminSettings() {
         account_holder_name: res.data.account_holder_name || '',
         payment_qr: res.data.payment_qr || null,
       });
+      return;
+    }
+
+    // Graceful fallback to /pg if /settings/banking returned 404 / Endpoint not found
+    try {
+      const pgRes = await apiGet<{
+        upi_id?: string | null;
+        bank_name?: string | null;
+        account_number?: string | null;
+        ifsc_code?: string | null;
+        account_holder_name?: string | null;
+      }>('/pg');
+      if (pgRes.success && pgRes.data) {
+        setBanking((prev) => ({
+          ...prev,
+          upi_id: pgRes.data?.upi_id || '',
+          bank_name: pgRes.data?.bank_name || '',
+          account_number: pgRes.data?.account_number || '',
+          ifsc_code: pgRes.data?.ifsc_code || '',
+          account_holder_name: pgRes.data?.account_holder_name || '',
+        }));
+      }
+    } catch (e) {
+      console.warn('[Settings] Fallback to /pg failed:', e);
     }
   }
 
   async function handleSaveBanking() {
     setIsSavingBanking(true);
-    const res = await apiPatch<{
-      upi_id: string;
-      bank_name: string;
-      account_number: string;
-      ifsc_code: string;
-      account_holder_name: string;
-      payment_qr: string | null;
-    }>('/settings/banking', {
+    const payload = {
       upi_id: banking.upi_id.trim() || null,
       bank_name: banking.bank_name.trim() || null,
       account_number: banking.account_number.trim() || null,
       ifsc_code: banking.ifsc_code.trim().toUpperCase() || null,
       account_holder_name: banking.account_holder_name.trim() || null,
       payment_qr: banking.payment_qr,
-    });
+    };
+
+    let res = await apiPatch<{
+      upi_id: string;
+      bank_name: string;
+      account_number: string;
+      ifsc_code: string;
+      account_holder_name: string;
+      payment_qr: string | null;
+    }>('/settings/banking', payload);
+
+    // If /settings/banking failed because endpoint is not found, fallback to saving via /pg
+    if (!res.success && (res.error?.toLowerCase().includes('not found') || res.error?.includes('404'))) {
+      const pgPayload = {
+        upi_id: payload.upi_id,
+        bank_name: payload.bank_name,
+        account_number: payload.account_number,
+        ifsc_code: payload.ifsc_code,
+        account_holder_name: payload.account_holder_name,
+      };
+      const pgRes = await apiPatch('/pg', pgPayload);
+      if (pgRes.success) {
+        showToast('Banking & UPI details saved successfully! WhatsApp reminders will use these details.');
+        setIsSavingBanking(false);
+        return;
+      }
+    }
+
     if (res.success) {
       showToast('Banking details & Payment QR saved! WhatsApp reminders will now include these details.');
       if (res.data) setBanking(res.data);

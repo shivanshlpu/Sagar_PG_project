@@ -22,40 +22,111 @@ export interface WhatsAppState {
   phoneNumber?: string | null;
   connectedAt?: string | null;
   lastError?: string | null;
+  pgId?: string;
 }
 
-let sock: any = null;
-let currentQr: string | null = null;
-let pairingCode: string | null = null;
-let connectionStatus: 'disconnected' | 'pairing' | 'connected' = 'disconnected';
-let connectedPhone: string | null = null;
-let connectedAt: string | null = null;
-let lastError: string | null = null;
-let isInitializing = false;
-let isSocketReadyForPairing = false;
-let reconnectAttempts = 0;
+interface QueuedMessage {
+  id: string;
+  jid: string;
+  text: string;
+  imageBuffer?: Buffer | null;
+  resolve: () => void;
+  reject: (err: Error) => void;
+  enqueuedAt: number;
+}
+
+export interface WhatsAppSession {
+  pgId: string;
+  sock: any | null;
+  status: 'disconnected' | 'pairing' | 'connected';
+  currentQr: string | null;
+  pairingCode: string | null;
+  connectedPhone: string | null;
+  connectedAt: string | null;
+  lastError: string | null;
+  isInitializing: boolean;
+  isSocketReadyForPairing: boolean;
+  reconnectAttempts: number;
+  reconnectTimer: NodeJS.Timeout | null;
+  qrResolvers: Array<(qr: string) => void>;
+  readyResolvers: Array<() => void>;
+  saveDbTimer: NodeJS.Timeout | null;
+  messageQueue: QueuedMessage[];
+  isProcessingQueue: boolean;
+}
+
 const MAX_RECONNECT_ATTEMPTS = 5;
-let reconnectTimer: NodeJS.Timeout | null = null;
 
-// Callbacks waiting for socket ready / QR
-let qrResolvers: Array<(qr: string) => void> = [];
-let readyResolvers: Array<() => void> = [];
+// In-Memory Multi-Session Registry: Map<pgId, WhatsAppSession>
+const sessions = new Map<string, WhatsAppSession>();
 
-// Debounced timer for persisting session files to Supabase DB
-let saveDbTimer: NodeJS.Timeout | null = null;
+/**
+ * Resolves the directory on disk for a specific PG's session files.
+ * Preserves legacy 'server/sessions/' root when 'default' creds are present.
+ */
+export function getSessionDir(pgId: string = 'default'): string {
+  // If 'default' session and creds.json exists directly in SESSIONS_DIR, preserve it to prevent re-pairing
+  if (pgId === 'default' && fs.existsSync(path.join(SESSIONS_DIR, 'creds.json'))) {
+    return SESSIONS_DIR;
+  }
+  const dir = path.join(SESSIONS_DIR, pgId);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+  return dir;
+}
 
-export function hasExistingSession(): boolean {
+/**
+ * Returns the Supabase settings table key for backing up session files.
+ */
+function getDbBackupKey(pgId: string = 'default'): string {
+  return pgId === 'default' ? 'whatsapp_session_backup' : `whatsapp_session_${pgId}`;
+}
+
+/**
+ * Retrieves or lazily creates a session state object in memory for a given pgId.
+ */
+export function getOrCreateSession(pgId: string = 'default'): WhatsAppSession {
+  let session = sessions.get(pgId);
+  if (!session) {
+    session = {
+      pgId,
+      sock: null,
+      status: 'disconnected',
+      currentQr: null,
+      pairingCode: null,
+      connectedPhone: null,
+      connectedAt: null,
+      lastError: null,
+      isInitializing: false,
+      isSocketReadyForPairing: false,
+      reconnectAttempts: 0,
+      reconnectTimer: null,
+      qrResolvers: [],
+      readyResolvers: [],
+      saveDbTimer: null,
+      messageQueue: [],
+      isProcessingQueue: false,
+    };
+    sessions.set(pgId, session);
+  }
+  return session;
+}
+
+export function hasExistingSession(pgId: string = 'default'): boolean {
   try {
-    const credsPath = path.join(SESSIONS_DIR, 'creds.json');
+    const sessionDir = getSessionDir(pgId);
+    const credsPath = path.join(sessionDir, 'creds.json');
     return fs.existsSync(credsPath);
   } catch {
     return false;
   }
 }
 
-export function getSavedPhone(): string | null {
+export function getSavedPhone(pgId: string = 'default'): string | null {
   try {
-    const credsPath = path.join(SESSIONS_DIR, 'creds.json');
+    const sessionDir = getSessionDir(pgId);
+    const credsPath = path.join(sessionDir, 'creds.json');
     if (fs.existsSync(credsPath)) {
       const data = JSON.parse(fs.readFileSync(credsPath, 'utf8'));
       if (data?.me?.id) {
@@ -67,152 +138,172 @@ export function getSavedPhone(): string | null {
 }
 
 /**
- * Persists all session files from disk into Supabase database.
- * This guarantees that when a new update is pushed to git or the container restarts,
- * the session is NOT lost even if the local disk is wiped.
+ * Persists session files from local disk into Supabase database for a given pgId.
  */
-async function syncSessionToDatabase(): Promise<void> {
+async function syncSessionToDatabase(pgId: string = 'default'): Promise<void> {
   try {
-    if (!fs.existsSync(SESSIONS_DIR)) return;
-    const files = fs.readdirSync(SESSIONS_DIR);
+    const sessionDir = getSessionDir(pgId);
+    if (!fs.existsSync(sessionDir)) return;
+    const files = fs.readdirSync(sessionDir);
     if (!files.includes('creds.json')) return;
 
     const sessionFiles: Record<string, string> = {};
     for (const file of files) {
-      const filePath = path.join(SESSIONS_DIR, file);
+      const filePath = path.join(sessionDir, file);
       if (fs.statSync(filePath).isFile()) {
         sessionFiles[file] = fs.readFileSync(filePath, 'utf8');
       }
     }
 
+    const key = getDbBackupKey(pgId);
     await supabaseAdmin
       .from('settings')
       .upsert(
         {
-          key: 'whatsapp_session_backup',
-          value: { files: sessionFiles, savedAt: new Date().toISOString() },
+          key,
+          value: { files: sessionFiles, pgId, savedAt: new Date().toISOString() },
           updated_at: new Date().toISOString(),
         },
         { onConflict: 'key' }
       );
-    console.log(`[WhatsApp] Persisted session (${Object.keys(sessionFiles).length} files) to database.`);
+    console.log(`[WhatsApp ${pgId}] Persisted session (${Object.keys(sessionFiles).length} files) to database [${key}].`);
   } catch (err: any) {
-    console.warn('[WhatsApp] Failed to backup session to database:', err.message);
+    console.warn(`[WhatsApp ${pgId}] Failed to backup session to database:`, err.message);
   }
 }
 
-function debouncedSaveSessionToDatabase() {
-  if (saveDbTimer) clearTimeout(saveDbTimer);
-  saveDbTimer = setTimeout(() => {
-    syncSessionToDatabase().catch((e) => console.warn('[WhatsApp Backup Warn]:', e.message));
+function debouncedSaveSessionToDatabase(session: WhatsAppSession) {
+  if (session.saveDbTimer) clearTimeout(session.saveDbTimer);
+  session.saveDbTimer = setTimeout(() => {
+    syncSessionToDatabase(session.pgId).catch((e) =>
+      console.warn(`[WhatsApp ${session.pgId} Backup Warn]:`, e.message)
+    );
   }, 2000);
 }
 
 /**
- * Restores session credentials from Supabase database onto local disk if disk session was wiped.
+ * Restores session credentials from Supabase database onto local disk for a given pgId.
  */
-export async function restoreSessionFromDatabase(): Promise<boolean> {
+export async function restoreSessionFromDatabase(pgId: string = 'default'): Promise<boolean> {
   try {
-    const { data, error } = await supabaseAdmin
+    const key = getDbBackupKey(pgId);
+    let { data, error } = await supabaseAdmin
       .from('settings')
       .select('value')
-      .eq('key', 'whatsapp_session_backup')
+      .eq('key', key)
       .maybeSingle();
+
+    // If default and not found, check whatsapp_session_default as fallback
+    if ((!data || error) && pgId === 'default') {
+      const alt = await supabaseAdmin
+        .from('settings')
+        .select('value')
+        .eq('key', 'whatsapp_session_default')
+        .maybeSingle();
+      if (alt.data) data = alt.data;
+    }
 
     if (error || !data?.value?.files) return false;
 
     const files = data.value.files as Record<string, string>;
     if (!files['creds.json']) return false;
 
-    if (!fs.existsSync(SESSIONS_DIR)) {
-      fs.mkdirSync(SESSIONS_DIR, { recursive: true });
+    const sessionDir = getSessionDir(pgId);
+    if (!fs.existsSync(sessionDir)) {
+      fs.mkdirSync(sessionDir, { recursive: true });
     }
 
     for (const [name, content] of Object.entries(files)) {
       if (typeof content === 'string') {
-        fs.writeFileSync(path.join(SESSIONS_DIR, name), content, 'utf8');
+        fs.writeFileSync(path.join(sessionDir, name), content, 'utf8');
       }
     }
 
-    console.log(`[WhatsApp] Restored session (${Object.keys(files).length} files) from DB backup.`);
+    console.log(`[WhatsApp ${pgId}] Restored session (${Object.keys(files).length} files) from DB backup (${key}).`);
     return true;
   } catch (err: any) {
-    console.warn('[WhatsApp] Could not restore session from database:', err.message);
+    console.warn(`[WhatsApp ${pgId}] Could not restore session from database:`, err.message);
     return false;
   }
 }
 
-export async function initWhatsAppIfSessionExists(): Promise<void> {
-  // 1. If no session on disk, attempt to restore from Supabase DB first
-  if (!hasExistingSession()) {
-    try {
-      await restoreSessionFromDatabase();
-    } catch (e: any) {
-      console.warn('[WhatsApp DB Restore Error]:', e.message);
-    }
-  }
-
-  // 2. If session exists (either on disk or restored from DB), connect automatically!
-  if (hasExistingSession()) {
-    console.log('[WhatsApp] Existing session found. Connecting automatically...');
-    connectWhatsApp().catch((err) => console.error('[WhatsApp Auto-Init Error]:', err.message));
-  }
-}
-
-export function getWhatsAppStatus(): WhatsAppState {
-  const phone = connectedPhone || (connectionStatus === 'connected' ? getSavedPhone() : null);
+/**
+ * Returns current status of a specific PG session.
+ */
+export function getWhatsAppStatus(pgId: string = 'default'): WhatsAppState {
+  const session = getOrCreateSession(pgId);
+  const phone = session.connectedPhone || (session.status === 'connected' ? getSavedPhone(pgId) : null);
 
   return {
-    status: connectionStatus,
-    hasQr: !!currentQr,
-    qr: currentQr,
-    pairingCode,
+    status: session.status,
+    hasQr: !!session.currentQr,
+    qr: session.currentQr,
+    pairingCode: session.pairingCode,
     phoneNumber: phone,
-    connectedAt,
-    lastError,
+    connectedAt: session.connectedAt,
+    lastError: session.lastError,
+    pgId: session.pgId,
   };
 }
 
-export async function connectWhatsApp(): Promise<WhatsAppState> {
+/**
+ * Returns statuses of all registered sessions in the manager.
+ */
+export function getAllSessionsStatus(): WhatsAppState[] {
+  const result: WhatsAppState[] = [];
+  for (const session of sessions.values()) {
+    result.push(getWhatsAppStatus(session.pgId));
+  }
+  return result;
+}
+
+/**
+ * Connects or initializes a Baileys socket for a given pgId.
+ */
+export async function connectWhatsApp(pgId: string = 'default'): Promise<WhatsAppState> {
+  const session = getOrCreateSession(pgId);
+
   // Already connected with an active socket? Don't create another!
-  if (connectionStatus === 'connected' && sock) {
-    return getWhatsAppStatus();
+  if (session.status === 'connected' && session.sock) {
+    return getWhatsAppStatus(pgId);
   }
 
-  // If already initializing and waiting for QR or open connection, don't create multiple sockets!
-  if (isInitializing) {
-    return getWhatsAppStatus();
+  // If already initializing and waiting for QR or open connection, avoid duplicate calls
+  if (session.isInitializing) {
+    return getWhatsAppStatus(pgId);
   }
 
   // Check if session can be restored from DB before starting pairing from scratch
-  if (!hasExistingSession()) {
+  if (!hasExistingSession(pgId)) {
     try {
-      await restoreSessionFromDatabase();
+      await restoreSessionFromDatabase(pgId);
     } catch {}
   }
 
-  isInitializing = true;
-  lastError = null;
-  if (connectionStatus !== 'connected') {
-    connectionStatus = 'pairing';
+  session.isInitializing = true;
+  session.lastError = null;
+  if (session.status !== 'connected') {
+    session.status = 'pairing';
   }
-  isSocketReadyForPairing = false;
+  session.isSocketReadyForPairing = false;
 
-  // Clean up any stale/zombie socket before opening a new one to prevent WhatsApp conflict
-  if (sock) {
+  // Clean up any stale/zombie socket before opening a new one
+  if (session.sock) {
     try {
-      sock.ev.removeAllListeners('connection.update');
-      sock.ev.removeAllListeners('creds.update');
-      sock.end(undefined);
+      session.sock.ev.removeAllListeners('connection.update');
+      session.sock.ev.removeAllListeners('creds.update');
+      session.sock.end(undefined);
     } catch {}
-    sock = null;
+    session.sock = null;
   }
+
+  const sessionDir = getSessionDir(pgId);
 
   try {
-    const { state, saveCreds } = await useMultiFileAuthState(SESSIONS_DIR);
+    const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
     const { version } = await fetchLatestBaileysVersion();
 
-    sock = makeWASocket({
+    const sock = makeWASocket({
       version,
       auth: state,
       printQRInTerminal: false,
@@ -220,9 +311,11 @@ export async function connectWhatsApp(): Promise<WhatsAppState> {
       defaultQueryTimeoutMs: 60000,
     });
 
+    session.sock = sock;
+
     sock.ev.on('creds.update', async () => {
       await saveCreds();
-      debouncedSaveSessionToDatabase();
+      debouncedSaveSessionToDatabase(session);
     });
 
     sock.ev.on('connection.update', async (update: any) => {
@@ -230,18 +323,18 @@ export async function connectWhatsApp(): Promise<WhatsAppState> {
 
       if (qr) {
         try {
-          currentQr = await QRCode.toDataURL(qr, { margin: 2, scale: 8 });
-          connectionStatus = 'pairing';
-          isSocketReadyForPairing = true;
-          console.log('[WhatsApp] New QR code generated');
+          session.currentQr = await QRCode.toDataURL(qr, { margin: 2, scale: 8 });
+          session.status = 'pairing';
+          session.isSocketReadyForPairing = true;
+          console.log(`[WhatsApp ${pgId}] New QR code generated`);
 
           // Notify all waiters
-          qrResolvers.forEach((r) => r(currentQr!));
-          qrResolvers = [];
-          readyResolvers.forEach((r) => r());
-          readyResolvers = [];
+          session.qrResolvers.forEach((r) => r(session.currentQr!));
+          session.qrResolvers = [];
+          session.readyResolvers.forEach((r) => r());
+          session.readyResolvers = [];
         } catch (qrErr: any) {
-          console.error('[WhatsApp] Failed to generate QR data URL:', qrErr.message);
+          console.error(`[WhatsApp ${pgId}] Failed to generate QR data URL:`, qrErr.message);
         }
       }
 
@@ -251,105 +344,112 @@ export async function connectWhatsApp(): Promise<WhatsAppState> {
         const isLoggedOut = statusCode === DisconnectReason.loggedOut;
         const shouldReconnect = isRestartRequired || (!isLoggedOut && statusCode !== 440);
 
-        connectionStatus = 'disconnected';
-        currentQr = null;
-        pairingCode = null;
-        isSocketReadyForPairing = false;
-        lastError = lastDisconnect?.error?.message || 'Connection closed';
-        console.log(`[WhatsApp] Closed (${statusCode}). Reconnecting: ${shouldReconnect} (attempt ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`);
+        session.status = 'disconnected';
+        session.currentQr = null;
+        session.pairingCode = null;
+        session.isSocketReadyForPairing = false;
+        session.lastError = lastDisconnect?.error?.message || 'Connection closed';
+        console.log(`[WhatsApp ${pgId}] Closed (${statusCode}). Reconnecting: ${shouldReconnect} (attempt ${session.reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`);
 
-        if (reconnectTimer) {
-          clearTimeout(reconnectTimer);
-          reconnectTimer = null;
+        if (session.reconnectTimer) {
+          clearTimeout(session.reconnectTimer);
+          session.reconnectTimer = null;
         }
 
         if (isLoggedOut) {
-          reconnectAttempts = 0;
-          console.log('[WhatsApp] Session logged out. Discontinuing reconnection.');
+          session.reconnectAttempts = 0;
+          console.log(`[WhatsApp ${pgId}] Session logged out. Discontinuing reconnection.`);
           return;
         }
 
-        if (shouldReconnect || hasExistingSession()) {
-          if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
-            reconnectAttempts++;
-            const delay = isRestartRequired ? 1500 : Math.min(2000 * Math.pow(2, reconnectAttempts), 30000);
-            console.log(`[WhatsApp] Scheduling reconnection attempt ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS} in ${delay}ms...`);
-            reconnectTimer = setTimeout(() => {
-              connectWhatsApp().catch((err) => console.error('[WhatsApp Reconnect Error]:', err.message));
+        if (shouldReconnect || hasExistingSession(pgId)) {
+          if (session.reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+            session.reconnectAttempts++;
+            const delay = isRestartRequired ? 1500 : Math.min(2000 * Math.pow(2, session.reconnectAttempts), 30000);
+            console.log(`[WhatsApp ${pgId}] Scheduling reconnection attempt ${session.reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS} in ${delay}ms...`);
+            session.reconnectTimer = setTimeout(() => {
+              connectWhatsApp(pgId).catch((err) =>
+                console.error(`[WhatsApp ${pgId} Reconnect Error]:`, err.message)
+              );
             }, delay);
           } else {
-            console.warn('[WhatsApp] Max reconnection attempts reached. Pausing auto-reconnect until manual retry.');
+            console.warn(`[WhatsApp ${pgId}] Max reconnection attempts reached. Pausing auto-reconnect until manual retry.`);
           }
         }
       } else if (connection === 'open') {
-        reconnectAttempts = 0;
-        if (reconnectTimer) {
-          clearTimeout(reconnectTimer);
-          reconnectTimer = null;
+        session.reconnectAttempts = 0;
+        if (session.reconnectTimer) {
+          clearTimeout(session.reconnectTimer);
+          session.reconnectTimer = null;
         }
-        connectionStatus = 'connected';
-        currentQr = null;
-        pairingCode = null;
-        isSocketReadyForPairing = true;
-        connectedAt = new Date().toISOString();
-        connectedPhone = sock?.user?.id?.split(':')[0] || getSavedPhone() || null;
-        lastError = null;
-        console.log(`[WhatsApp] Connected successfully as ${connectedPhone}`);
+        session.status = 'connected';
+        session.currentQr = null;
+        session.pairingCode = null;
+        session.isSocketReadyForPairing = true;
+        session.connectedAt = new Date().toISOString();
+        session.connectedPhone = session.sock?.user?.id?.split(':')[0] || getSavedPhone(pgId) || null;
+        session.lastError = null;
+        console.log(`[WhatsApp ${pgId}] Connected successfully as +${session.connectedPhone}`);
 
         // Persist fresh verified session to database
-        debouncedSaveSessionToDatabase();
+        debouncedSaveSessionToDatabase(session);
 
-        readyResolvers.forEach((r) => r());
-        readyResolvers = [];
+        session.readyResolvers.forEach((r) => r());
+        session.readyResolvers = [];
       }
     });
   } catch (err: any) {
-    lastError = err.message;
-    connectionStatus = 'disconnected';
-    isInitializing = false;
-    console.error('[WhatsApp Init Error]:', err.message);
+    session.lastError = err.message;
+    session.status = 'disconnected';
+    session.isInitializing = false;
+    console.error(`[WhatsApp ${pgId} Init Error]:`, err.message);
     throw err;
   } finally {
-    isInitializing = false;
+    session.isInitializing = false;
   }
 
   // If QR is already generated or already connected, return right away
-  if (currentQr || connectionStatus === 'connected') {
-    return getWhatsAppStatus();
+  if (session.currentQr || session.status === 'connected') {
+    return getWhatsAppStatus(pgId);
   }
 
-  // Otherwise wait up to 6 seconds for the initial connection / QR
+  // Otherwise wait up to 6 seconds for initial QR or open connection
   await new Promise<void>((resolve) => {
     const timer = setTimeout(() => resolve(), 6000);
-    qrResolvers.push(() => {
+    session.qrResolvers.push(() => {
       clearTimeout(timer);
       resolve();
     });
-    readyResolvers.push(() => {
+    session.readyResolvers.push(() => {
       clearTimeout(timer);
       resolve();
     });
   });
 
-  return getWhatsAppStatus();
+  return getWhatsAppStatus(pgId);
 }
 
-export async function requestPairingCode(phoneNumber: string): Promise<string> {
+/**
+ * Requests an 8-character pairing code for phone-number linking.
+ */
+export async function requestPairingCode(phoneNumber: string, pgId: string = 'default'): Promise<string> {
   const cleanNumber = phoneNumber.replace(/\D/g, '');
   if (cleanNumber.length < 10) {
     throw new Error('Please provide a valid 10-15 digit phone number with country code (e.g. 919876543210)');
   }
 
+  const session = getOrCreateSession(pgId);
+
   // Ensure socket is created
-  if (!sock) {
-    await connectWhatsApp();
+  if (!session.sock) {
+    await connectWhatsApp(pgId);
   }
 
   // If socket is not yet ready to receive pairing code, wait for it
-  if (!isSocketReadyForPairing && connectionStatus !== 'connected') {
+  if (!session.isSocketReadyForPairing && session.status !== 'connected') {
     await new Promise<void>((resolve) => {
       const timer = setTimeout(() => resolve(), 7000);
-      readyResolvers.push(() => {
+      session.readyResolvers.push(() => {
         clearTimeout(timer);
         resolve();
       });
@@ -357,50 +457,130 @@ export async function requestPairingCode(phoneNumber: string): Promise<string> {
   }
 
   try {
-    const code = await sock.requestPairingCode(cleanNumber);
-    pairingCode = code;
-    connectionStatus = 'pairing';
-    console.log(`[WhatsApp] Pairing code generated: ${code} for ${cleanNumber}`);
+    const code = await session.sock.requestPairingCode(cleanNumber);
+    session.pairingCode = code;
+    session.status = 'pairing';
+    console.log(`[WhatsApp ${pgId}] Pairing code generated: ${code} for ${cleanNumber}`);
     return code;
   } catch (err: any) {
-    console.error('[WhatsApp Pairing Code Error]:', err.message);
+    console.error(`[WhatsApp ${pgId} Pairing Code Error]:`, err.message);
     throw new Error(`Failed to request pairing code: ${err.message}`);
   }
 }
 
-export async function disconnectWhatsApp(): Promise<void> {
-  if (sock) {
+/**
+ * Disconnects and removes session data for a given pgId.
+ */
+export async function disconnectWhatsApp(pgId: string = 'default'): Promise<void> {
+  const session = getOrCreateSession(pgId);
+
+  if (session.sock) {
     try {
-      await sock.logout();
-    } catch {
-      // Ignore logout errors if socket is already closed
-    }
-    sock = null;
+      await session.sock.logout();
+    } catch {}
+    session.sock = null;
   }
 
-  connectionStatus = 'disconnected';
-  currentQr = null;
-  pairingCode = null;
-  connectedPhone = null;
-  connectedAt = null;
-  isSocketReadyForPairing = false;
+  session.status = 'disconnected';
+  session.currentQr = null;
+  session.pairingCode = null;
+  session.connectedPhone = null;
+  session.connectedAt = null;
+  session.isSocketReadyForPairing = false;
+  if (session.reconnectTimer) {
+    clearTimeout(session.reconnectTimer);
+    session.reconnectTimer = null;
+  }
 
-  // Clean sessions dir so fresh credentials / QR are generated on next connect
-  if (fs.existsSync(SESSIONS_DIR)) {
+  // Clean session folder on disk
+  const sessionDir = getSessionDir(pgId);
+  if (fs.existsSync(sessionDir)) {
     try {
-      fs.rmSync(SESSIONS_DIR, { recursive: true, force: true });
-      fs.mkdirSync(SESSIONS_DIR, { recursive: true });
+      fs.rmSync(sessionDir, { recursive: true, force: true });
+      fs.mkdirSync(sessionDir, { recursive: true });
     } catch (e: any) {
-      console.warn('[WhatsApp] Could not clean sessions dir:', e.message);
+      console.warn(`[WhatsApp ${pgId}] Could not clean session dir:`, e.message);
     }
   }
 
   // Clean DB backup
+  const key = getDbBackupKey(pgId);
   try {
-    await supabaseAdmin.from('settings').delete().eq('key', 'whatsapp_session_backup');
+    await supabaseAdmin.from('settings').delete().eq('key', key);
+    if (pgId === 'default') {
+      await supabaseAdmin.from('settings').delete().eq('key', 'whatsapp_session_default');
+    }
   } catch (e: any) {
-    console.warn('[WhatsApp] Could not clean DB backup:', e.message);
+    console.warn(`[WhatsApp ${pgId}] Could not clean DB backup:`, e.message);
   }
+}
+
+/**
+ * Scans local storage and Supabase DB to automatically boot all available WhatsApp sessions.
+ */
+export async function initAllWhatsAppSessions(): Promise<void> {
+  console.log('[WhatsApp Manager] Initializing all WhatsApp sessions...');
+
+  // 1. Collect all known session IDs from disk and Supabase settings
+  const knownPgIds = new Set<string>(['default']);
+
+  // Check disk subdirectories
+  try {
+    if (fs.existsSync(SESSIONS_DIR)) {
+      const entries = fs.readdirSync(SESSIONS_DIR, { withFileTypes: true });
+      for (const entry of entries) {
+        if (entry.isDirectory()) {
+          knownPgIds.add(entry.name);
+        }
+      }
+    }
+  } catch (e: any) {
+    console.warn('[WhatsApp Manager] Error reading sessions dir:', e.message);
+  }
+
+  // Check Supabase backup keys
+  try {
+    const { data } = await supabaseAdmin
+      .from('settings')
+      .select('key')
+      .like('key', 'whatsapp_session_%');
+
+    if (data) {
+      for (const row of data) {
+        if (row.key === 'whatsapp_session_backup' || row.key === 'whatsapp_session_default') {
+          knownPgIds.add('default');
+        } else if (row.key.startsWith('whatsapp_session_')) {
+          const pgId = row.key.replace('whatsapp_session_', '');
+          if (pgId) knownPgIds.add(pgId);
+        }
+      }
+    }
+  } catch (e: any) {
+    console.warn('[WhatsApp Manager] Error querying DB session backups:', e.message);
+  }
+
+  // 2. Restore and connect each session
+  for (const pgId of knownPgIds) {
+    if (!hasExistingSession(pgId)) {
+      try {
+        await restoreSessionFromDatabase(pgId);
+      } catch (e: any) {
+        console.warn(`[WhatsApp Manager] Could not restore session for ${pgId}:`, e.message);
+      }
+    }
+
+    if (hasExistingSession(pgId)) {
+      console.log(`[WhatsApp Manager] Booting session for PG [${pgId}]...`);
+      connectWhatsApp(pgId).catch((err) =>
+        console.error(`[WhatsApp Manager] Failed auto-connect for [${pgId}]:`, err.message)
+      );
+    }
+  }
+}
+
+// Backward-compatible alias for single-session callers
+export async function initWhatsAppIfSessionExists(): Promise<void> {
+  return initAllWhatsAppSessions();
 }
 
 /**
@@ -417,21 +597,8 @@ export function normalizePhoneNumber(phone: string): string {
   return clean;
 }
 
-interface QueuedMessage {
-  id: string;
-  jid: string;
-  text: string;
-  imageBuffer?: Buffer | null;
-  resolve: () => void;
-  reject: (err: Error) => void;
-  enqueuedAt: number;
-}
-
-const messageQueue: QueuedMessage[] = [];
-let isProcessingQueue = false;
-
 /**
- * Decodes a base64 Data URL (e.g. data:image/png;base64,...) or raw base64 string into a Buffer.
+ * Decodes a base64 Data URL or raw base64 string into a Buffer.
  */
 export function decodeBase64Image(dataOrUrl: string): Buffer | null {
   try {
@@ -447,72 +614,114 @@ export function decodeBase64Image(dataOrUrl: string): Buffer | null {
   }
 }
 
-async function processMessageQueue(): Promise<void> {
-  if (isProcessingQueue) return;
-  isProcessingQueue = true;
+/**
+ * Processes the FIFO message queue for a specific session with human anti-ban delays.
+ */
+async function processSessionQueue(session: WhatsAppSession): Promise<void> {
+  if (session.isProcessingQueue) return;
+  session.isProcessingQueue = true;
 
-  while (messageQueue.length > 0) {
-    const item = messageQueue.shift();
+  while (session.messageQueue.length > 0) {
+    const item = session.messageQueue.shift();
     if (!item) break;
 
     try {
-      if (connectionStatus !== 'connected' || !sock) {
-        throw new Error('WhatsApp service is not connected');
+      if (session.status !== 'connected' || !session.sock) {
+        throw new Error(`WhatsApp service for [${session.pgId}] is not connected`);
       }
 
       // Anti-Spam: Simulate natural human typing presence before dispatching
       try {
-        await sock.sendPresenceUpdate('composing', item.jid);
+        await session.sock.sendPresenceUpdate('composing', item.jid);
         await new Promise((r) => setTimeout(r, 1000 + Math.floor(Math.random() * 800)));
-        await sock.sendPresenceUpdate('paused', item.jid);
+        await session.sock.sendPresenceUpdate('paused', item.jid);
       } catch {}
 
-      console.log(`[WhatsApp Queue] Sending to ${item.jid} (${messageQueue.length} pending in queue, hasImage: ${Boolean(item.imageBuffer)})`);
+      console.log(`[WhatsApp Queue ${session.pgId}] Sending to ${item.jid} (${session.messageQueue.length} pending, hasImage: ${Boolean(item.imageBuffer)})`);
       if (item.imageBuffer) {
         try {
-          await sock.sendMessage(item.jid, {
+          await session.sock.sendMessage(item.jid, {
             image: item.imageBuffer,
             caption: item.text,
           });
         } catch (imgErr: any) {
-          console.warn(`[WhatsApp Queue] Failed to send image to ${item.jid}, falling back to text:`, imgErr.message);
-          await sock.sendMessage(item.jid, { text: item.text });
+          console.warn(`[WhatsApp Queue ${session.pgId}] Image failed, falling back to text:`, imgErr.message);
+          await session.sock.sendMessage(item.jid, { text: item.text });
         }
       } else {
-        await sock.sendMessage(item.jid, { text: item.text });
+        await session.sock.sendMessage(item.jid, { text: item.text });
       }
 
-      console.log(`[WhatsApp Queue] Successfully sent to ${item.jid}`);
+      console.log(`[WhatsApp Queue ${session.pgId}] Successfully sent to ${item.jid}`);
       item.resolve();
     } catch (err: any) {
-      console.error(`[WhatsApp Queue Error] Failed to send to ${item.jid}:`, err.message);
+      console.error(`[WhatsApp Queue Error ${session.pgId}] Failed to send to ${item.jid}:`, err.message);
       item.reject(err);
     }
 
     // Anti-Ban & Anti-Spam: Enforce natural human-like jitter delay (2.5s – 4.5s) between consecutive messages
-    if (messageQueue.length > 0) {
+    if (session.messageQueue.length > 0) {
       const naturalDelay = 2500 + Math.floor(Math.random() * 2000);
       await new Promise((resolve) => setTimeout(resolve, naturalDelay));
     }
   }
 
-  isProcessingQueue = false;
+  session.isProcessingQueue = false;
 }
 
+/**
+ * Dispatches an outbound WhatsApp message.
+ * Dynamically routes to the session matching options.pgId.
+ * Falls back to 'default' or any active session if no specific session is bound.
+ */
 export async function sendWhatsAppMessage(
   phone: string,
   text: string,
-  options?: { imageBuffer?: Buffer | null }
+  options?: {
+    pgId?: string;
+    imageBuffer?: Buffer | null;
+  }
 ): Promise<void> {
-  if (connectionStatus !== 'connected' || !sock) {
-    throw new Error('WhatsApp service is not connected. Please ensure WhatsApp is connected in Settings.');
+  const targetPgId = options?.pgId;
+  let session: WhatsAppSession | undefined;
+
+  // 1. Try specified pgId session
+  if (targetPgId) {
+    session = sessions.get(targetPgId);
+    if (!session || session.status !== 'connected' || !session.sock) {
+      if (hasExistingSession(targetPgId)) {
+        try {
+          await connectWhatsApp(targetPgId);
+          session = sessions.get(targetPgId);
+        } catch {}
+      }
+    }
+  }
+
+  // 2. Fallback to default session or first connected session
+  if (!session || session.status !== 'connected' || !session.sock) {
+    session = sessions.get('default');
+    if (!session || session.status !== 'connected' || !session.sock) {
+      for (const s of sessions.values()) {
+        if (s.status === 'connected' && s.sock) {
+          session = s;
+          break;
+        }
+      }
+    }
+  }
+
+  if (!session || session.status !== 'connected' || !session.sock) {
+    throw new Error(
+      `WhatsApp service is not connected${targetPgId ? ` for PG [${targetPgId}]` : ''}. Please connect WhatsApp in Settings.`
+    );
   }
 
   const cleanPhone = normalizePhoneNumber(phone);
   const jid = `${cleanPhone}@s.whatsapp.net`;
 
   return new Promise<void>((resolve, reject) => {
-    messageQueue.push({
+    session!.messageQueue.push({
       id: Math.random().toString(36).substring(2, 9),
       jid,
       text,
@@ -522,9 +731,8 @@ export async function sendWhatsAppMessage(
       enqueuedAt: Date.now(),
     });
 
-    processMessageQueue().catch((err) => {
-      console.error('[WhatsApp Queue Error]:', err);
+    processSessionQueue(session!).catch((err) => {
+      console.error(`[WhatsApp Queue Error ${session!.pgId}]:`, err);
     });
   });
 }
-

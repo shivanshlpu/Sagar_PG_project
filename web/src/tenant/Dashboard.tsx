@@ -141,6 +141,29 @@ export default function TenantDashboard() {
       }>('/settings/banking');
       if (res.success && res.data) {
         setBankingDetails(res.data);
+      } else {
+        // Graceful fallback to /pg if /settings/banking not found
+        try {
+          const pgRes = await apiGet<{
+            upi_id?: string | null;
+            bank_name?: string | null;
+            account_number?: string | null;
+            ifsc_code?: string | null;
+            account_holder_name?: string | null;
+          }>('/pg');
+          if (pgRes.success && pgRes.data) {
+            setBankingDetails({
+              upi_id: pgRes.data.upi_id || '',
+              bank_name: pgRes.data.bank_name || '',
+              account_number: pgRes.data.account_number || '',
+              ifsc_code: pgRes.data.ifsc_code || '',
+              account_holder_name: pgRes.data.account_holder_name || '',
+              payment_qr: null,
+            });
+          }
+        } catch (e) {
+          console.warn('[Tenant] Fallback to /pg failed:', e);
+        }
       }
       setIsLoadingBanking(false);
     }
