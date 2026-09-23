@@ -30,8 +30,21 @@ router.get('/sessions', authenticate, authorize('admin'), enforcePgBoundary, asy
 router.post('/connect', authenticate, authorize('admin'), enforcePgBoundary, async (req: Request, res: Response) => {
   try {
     const pgId = req.user?.pgId || (req.body?.pgId as string) || (req.query?.pgId as string) || 'default';
-    const status = await whatsappService.connectWhatsApp(pgId);
+    const force = req.body?.force === true || req.query?.force === 'true';
+    const status = await whatsappService.connectWhatsApp(pgId, { forceRefresh: force });
     res.json({ success: true, data: status });
+  } catch (err) {
+    res.status(500).json({ success: false, error: (err as Error).message });
+  }
+});
+
+// POST /api/v1/whatsapp/reset [Admin] - Force purge stale session and generate fresh QR code
+router.post('/reset', authenticate, authorize('admin'), enforcePgBoundary, async (req: Request, res: Response) => {
+  try {
+    const pgId = req.user?.pgId || (req.body?.pgId as string) || (req.query?.pgId as string) || 'default';
+    await whatsappService.purgeSessionStorage(pgId);
+    const status = await whatsappService.connectWhatsApp(pgId, { forceRefresh: true });
+    res.json({ success: true, data: status, message: `Session reset for PG [${pgId}]. Fresh QR code generated.` });
   } catch (err) {
     res.status(500).json({ success: false, error: (err as Error).message });
   }

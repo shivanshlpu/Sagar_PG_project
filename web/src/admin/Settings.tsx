@@ -309,14 +309,32 @@ export default function AdminSettings() {
     if (showLoading) setWaLoading(false);
   }
 
-  async function handleConnectWhatsApp() {
+  async function handleConnectWhatsApp(force = false) {
     setWaLoading(true);
-    const res = await apiPost<WhatsAppStatusData>('/whatsapp/connect');
+    const res = await apiPost<WhatsAppStatusData>('/whatsapp/connect', { force });
     if (res.success && res.data) {
       setWaData(res.data);
-      showToast('WhatsApp connection initialized. Waiting for QR scan or pairing.');
+      if (res.data.hasQr) {
+        showToast('Live QR code generated! Scan with your phone.');
+      } else if (res.data.status === 'connected') {
+        showToast('WhatsApp connected successfully!');
+      } else {
+        showToast('WhatsApp connection initialized. Waiting for QR scan.');
+      }
     } else {
       showToast(res.error || 'Failed to initialize WhatsApp', 'error');
+    }
+    setWaLoading(false);
+  }
+
+  async function handleResetWhatsApp() {
+    setWaLoading(true);
+    const res = await apiPost<WhatsAppStatusData>('/whatsapp/reset');
+    if (res.success && res.data) {
+      setWaData(res.data);
+      showToast('Stale session purged. Fresh QR code generated.');
+    } else {
+      showToast(res.error || 'Failed to reset WhatsApp session', 'error');
     }
     setWaLoading(false);
   }
@@ -944,6 +962,24 @@ export default function AdminSettings() {
       {/* TAB 2: WHATSAPP AUTOMATION */}
       {activeTab === 'whatsapp' && (
         <div style={{ display: 'grid', gap: '24px' }}>
+          {/* 24/7 Background Cloud Service Notice */}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '12px',
+              padding: '14px 18px',
+              backgroundColor: 'rgba(16, 185, 129, 0.08)',
+              border: '1px solid rgba(16, 185, 129, 0.25)',
+              borderRadius: 'var(--radius-lg)',
+            }}
+          >
+            <CheckCircle2 size={20} style={{ color: 'var(--color-success)', flexShrink: 0 }} />
+            <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', lineHeight: 1.5 }}>
+              <strong style={{ color: 'var(--color-text-primary)' }}>24/7 Cloud Background Service:</strong> Once connected, your WhatsApp session runs continuously in the background on the server. You <strong>do not need to keep this browser tab or app open</strong> for automated rent reminders, invoices, or receipts to be sent on schedule.
+            </div>
+          </div>
+
           {/* Status Hero Card */}
           <Card padding="lg" style={{ borderLeft: `4px solid ${waData.status === 'connected' ? 'var(--color-success)' : waData.status === 'pairing' ? 'var(--color-warning)' : 'var(--color-border)'}` }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
@@ -999,7 +1035,7 @@ export default function AdminSettings() {
                     Disconnect WhatsApp
                   </Button>
                 ) : (
-                  <Button onClick={handleConnectWhatsApp} isLoading={waLoading}>
+                  <Button onClick={() => handleConnectWhatsApp(true)} isLoading={waLoading}>
                     <RefreshCw size={15} /> Initialize Connection
                   </Button>
                 )}
@@ -1023,7 +1059,7 @@ export default function AdminSettings() {
                   <button
                     onClick={() => {
                       setConnectionMethod('qr');
-                      if (!waData.qr) handleConnectWhatsApp();
+                      if (!waData.qr) handleConnectWhatsApp(true);
                     }}
                     style={connectionMethod === 'qr' ? activePillStyle : inactivePillStyle}
                   >
@@ -1043,7 +1079,14 @@ export default function AdminSettings() {
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '24px', alignItems: 'center' }}>
                   <div style={{ display: 'flex', justifyContent: 'center' }}>
                     <div style={qrWrapperStyle}>
-                      {waData.qr ? (
+                      {waLoading ? (
+                        <div style={{ height: '240px', width: '240px', maxWidth: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '12px' }}>
+                          <RefreshCw size={36} className="animate-spin" style={{ color: 'var(--color-primary)' }} />
+                          <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', textAlign: 'center', padding: '0 16px' }}>
+                            Generating live QR code...
+                          </p>
+                        </div>
+                      ) : waData.qr ? (
                         <img
                           src={waData.qr}
                           alt="WhatsApp Connection QR Code"
@@ -1051,19 +1094,24 @@ export default function AdminSettings() {
                         />
                       ) : (
                         <div style={{ height: '240px', width: '240px', maxWidth: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '12px' }}>
-                        <QrCode size={48} style={{ color: 'var(--color-text-muted)' }} />
-                        <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', textAlign: 'center', padding: '0 16px' }}>
-                          Click "Generate QR Code" to create a live QR code.
-                        </p>
-                        <Button variant="secondary" onClick={handleConnectWhatsApp} isLoading={waLoading} style={{ fontSize: 'var(--font-size-xs)' }}>
-                          Generate QR Code
-                        </Button>
-                      </div>
-                    )}
+                          <QrCode size={48} style={{ color: 'var(--color-text-muted)' }} />
+                          <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', textAlign: 'center', padding: '0 16px' }}>
+                            Click "Generate QR Code" to create a live QR code.
+                          </p>
+                          <div style={{ display: 'flex', gap: '8px', flexDirection: 'column', width: '100%', padding: '0 16px' }}>
+                            <Button variant="secondary" onClick={() => handleConnectWhatsApp(true)} isLoading={waLoading} style={{ fontSize: 'var(--font-size-xs)', width: '100%' }}>
+                              Generate QR Code
+                            </Button>
+                            <Button variant="secondary" onClick={handleResetWhatsApp} isLoading={waLoading} style={{ fontSize: 'var(--font-size-xs)', width: '100%', opacity: 0.8 }}>
+                              Reset Stale Session
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </div>
 
-                <div>
+                  <div>
                     <h4 style={{ fontSize: 'var(--font-size-base)', fontWeight: 600, marginBottom: '10px' }}>
                       How to scan:
                     </h4>
@@ -1074,9 +1122,12 @@ export default function AdminSettings() {
                       <li>Point your camera at this QR code to link instantly.</li>
                     </ol>
 
-                    <div style={{ marginTop: '16px', display: 'flex', gap: '8px' }}>
-                      <Button variant="secondary" onClick={handleConnectWhatsApp} isLoading={waLoading}>
+                    <div style={{ marginTop: '16px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                      <Button variant="secondary" onClick={() => handleConnectWhatsApp(true)} isLoading={waLoading}>
                         <RefreshCw size={14} /> Refresh QR Code
+                      </Button>
+                      <Button variant="secondary" onClick={handleResetWhatsApp} isLoading={waLoading} style={{ color: 'var(--color-warning)' }}>
+                        Reset & Fresh QR
                       </Button>
                     </div>
                   </div>

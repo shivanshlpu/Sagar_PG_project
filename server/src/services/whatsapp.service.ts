@@ -117,9 +117,78 @@ export function hasExistingSession(pgId: string = 'default'): boolean {
   try {
     const sessionDir = getSessionDir(pgId);
     const credsPath = path.join(sessionDir, 'creds.json');
-    return fs.existsSync(credsPath);
+    if (!fs.existsSync(credsPath)) return false;
+    const creds = JSON.parse(fs.readFileSync(credsPath, 'utf8'));
+    // If registered is false or no valid ID, it's not a usable active session
+    return creds && creds.registered !== false && !!creds.me?.id;
   } catch {
     return false;
+  }
+}
+
+/**
+ * Completely purges local session files and Supabase database backup for a given pgId.
+ * Used when user logs out on phone, disconnects, or requests a fresh QR code.
+ */
+export async function purgeSessionStorage(pgId: string = 'default'): Promise<void> {
+  const session = getOrCreateSession(pgId);
+
+  // 1. Close socket safely
+  if (session.sock) {
+    try {
+      session.sock.ev.removeAllListeners('connection.update');
+      session.sock.ev.removeAllListeners('creds.update');
+      session.sock.end(undefined);
+    } catch {}
+    session.sock = null;
+  }
+
+  // 2. Clear in-memory state
+  session.status = 'disconnected';
+  session.currentQr = null;
+  session.pairingCode = null;
+  session.connectedPhone = null;
+  session.connectedAt = null;
+  session.isSocketReadyForPairing = false;
+  session.isInitializing = false;
+  session.reconnectAttempts = 0;
+  if (session.reconnectTimer) {
+    clearTimeout(session.reconnectTimer);
+    session.reconnectTimer = null;
+  }
+
+  // 3. Remove files from local disk
+  const sessionDir = getSessionDir(pgId);
+  try {
+    if (fs.existsSync(sessionDir)) {
+      if (pgId === 'default' && sessionDir === SESSIONS_DIR) {
+        // If default and using root SESSIONS_DIR, remove files but preserve root directory
+        const files = fs.readdirSync(SESSIONS_DIR);
+        for (const file of files) {
+          const fp = path.join(SESSIONS_DIR, file);
+          if (fs.statSync(fp).isFile()) {
+            fs.unlinkSync(fp);
+          }
+        }
+      } else {
+        fs.rmSync(sessionDir, { recursive: true, force: true });
+        fs.mkdirSync(sessionDir, { recursive: true });
+      }
+    }
+  } catch (err: any) {
+    console.warn(`[WhatsApp ${pgId}] Error clearing session directory:`, err.message);
+  }
+
+  // 4. Remove backup from Supabase database
+  const key = getDbBackupKey(pgId);
+  try {
+    await supabaseAdmin.from('settings').delete().eq('key', key);
+    if (pgId === 'default') {
+      await supabaseAdmin.from('settings').delete().eq('key', 'whatsapp_session_default');
+      await supabaseAdmin.from('settings').delete().eq('key', 'whatsapp_session_backup');
+    }
+  } catch (err: any) {
+    console.warn(`[WhatsApp ${pgId}] Error clearing DB session backup:`, err.message);
   }
 }
 
@@ -260,8 +329,17 @@ export function getAllSessionsStatus(): WhatsAppState[] {
 /**
  * Connects or initializes a Baileys socket for a given pgId.
  */
-export async function connectWhatsApp(pgId: string = 'default'): Promise<WhatsAppState> {
+export async function connectWhatsApp(
+  pgId: string = 'default',
+  options?: { forceRefresh?: boolean }
+): Promise<WhatsAppState> {
   const session = getOrCreateSession(pgId);
+
+  // If forceRefresh requested, purge existing local and remote storage first
+  if (options?.forceRefresh) {
+    console.log(`[WhatsApp ${pgId}] Force refresh requested. Purging existing session files...`);
+    await purgeSessionStorage(pgId);
+  }
 
   // Already connected with an active socket? Don't create another!
   if (session.status === 'connected' && session.sock) {
@@ -273,8 +351,23 @@ export async function connectWhatsApp(pgId: string = 'default'): Promise<WhatsAp
     return getWhatsAppStatus(pgId);
   }
 
+  // Check if session directory has invalid/logged-out creds
+  const sessionDir = getSessionDir(pgId);
+  const credsPath = path.join(sessionDir, 'creds.json');
+  if (fs.existsSync(credsPath)) {
+    try {
+      const creds = JSON.parse(fs.readFileSync(credsPath, 'utf8'));
+      if (creds && (creds.registered === false || !creds.me?.id)) {
+        console.log(`[WhatsApp ${pgId}] Detected un-registered/stale credentials on disk. Purging...`);
+        await purgeSessionStorage(pgId);
+      }
+    } catch {
+      await purgeSessionStorage(pgId);
+    }
+  }
+
   // Check if session can be restored from DB before starting pairing from scratch
-  if (!hasExistingSession(pgId)) {
+  if (!options?.forceRefresh && !hasExistingSession(pgId)) {
     try {
       await restoreSessionFromDatabase(pgId);
     } catch {}
@@ -296,8 +389,6 @@ export async function connectWhatsApp(pgId: string = 'default'): Promise<WhatsAp
     } catch {}
     session.sock = null;
   }
-
-  const sessionDir = getSessionDir(pgId);
 
   try {
     const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
@@ -326,7 +417,7 @@ export async function connectWhatsApp(pgId: string = 'default'): Promise<WhatsAp
           session.currentQr = await QRCode.toDataURL(qr, { margin: 2, scale: 8 });
           session.status = 'pairing';
           session.isSocketReadyForPairing = true;
-          console.log(`[WhatsApp ${pgId}] New QR code generated`);
+          console.log(`[WhatsApp ${pgId}] New QR code generated successfully`);
 
           // Notify all waiters
           session.qrResolvers.forEach((r) => r(session.currentQr!));
@@ -358,7 +449,8 @@ export async function connectWhatsApp(pgId: string = 'default'): Promise<WhatsAp
 
         if (isLoggedOut) {
           session.reconnectAttempts = 0;
-          console.log(`[WhatsApp ${pgId}] Session logged out. Discontinuing reconnection.`);
+          console.log(`[WhatsApp ${pgId}] Phone logged out. Purging dead credentials on disk and Supabase.`);
+          await purgeSessionStorage(pgId);
           return;
         }
 
@@ -391,8 +483,10 @@ export async function connectWhatsApp(pgId: string = 'default'): Promise<WhatsAp
         session.lastError = null;
         console.log(`[WhatsApp ${pgId}] Connected successfully as +${session.connectedPhone}`);
 
-        // Persist fresh verified session to database
-        debouncedSaveSessionToDatabase(session);
+        // Persist fresh verified session to database immediately to survive cloud restarts
+        syncSessionToDatabase(pgId).catch((e) =>
+          console.warn(`[WhatsApp ${pgId}] Immediate DB sync warning:`, e.message)
+        );
 
         session.readyResolvers.forEach((r) => r());
         session.readyResolvers = [];
@@ -413,9 +507,9 @@ export async function connectWhatsApp(pgId: string = 'default'): Promise<WhatsAp
     return getWhatsAppStatus(pgId);
   }
 
-  // Otherwise wait up to 6 seconds for initial QR or open connection
+  // Otherwise wait up to 10 seconds for initial QR or open connection
   await new Promise<void>((resolve) => {
-    const timer = setTimeout(() => resolve(), 6000);
+    const timer = setTimeout(() => resolve(), 10000);
     session.qrResolvers.push(() => {
       clearTimeout(timer);
       resolve();
@@ -515,14 +609,81 @@ export async function disconnectWhatsApp(pgId: string = 'default'): Promise<void
   }
 }
 
+let watchdogInterval: NodeJS.Timeout | null = null;
+
+/**
+ * 24/7 Session Watchdog Monitor:
+ * Runs in the background on the server every 2 minutes.
+ * Ensures all active PGs that have saved credentials stay connected 24/7 in the cloud,
+ * even across Render container restarts or transient network reconnect drops.
+ */
+export function startWhatsAppWatchdog(): void {
+  if (watchdogInterval) return;
+  console.log('[WhatsApp Watchdog] Initialized 24/7 background session monitor (checking every 2 minutes)...');
+
+  watchdogInterval = setInterval(async () => {
+    try {
+      // 1. Fetch all active PGs
+      const { data: pgs } = await supabaseAdmin
+        .from('pgs')
+        .select('id, name')
+        .eq('is_active', true);
+
+      const targetPgIds = new Set<string>(['default']);
+      if (pgs) {
+        for (const pg of pgs) targetPgIds.add(pg.id);
+      }
+
+      for (const pgId of targetPgIds) {
+        const session = sessions.get(pgId);
+        const isConnected = session?.status === 'connected' && !!session?.sock;
+
+        // If not connected, check if valid session credentials exist (on disk or in Supabase)
+        if (!isConnected && !session?.isInitializing) {
+          let hasCreds = hasExistingSession(pgId);
+          if (!hasCreds) {
+            const key = getDbBackupKey(pgId);
+            const { data } = await supabaseAdmin.from('settings').select('value').eq('key', key).maybeSingle();
+            hasCreds = !!data?.value?.files?.['creds.json'];
+          }
+
+          if (hasCreds) {
+            console.log(`[WhatsApp Watchdog] Auto-reconnecting dropped session for PG [${pgId}]...`);
+            connectWhatsApp(pgId).catch((err) =>
+              console.warn(`[WhatsApp Watchdog] Reconnect attempt failed for [${pgId}]:`, err.message)
+            );
+          }
+        }
+      }
+    } catch (err: any) {
+      console.warn('[WhatsApp Watchdog] Health check warning:', err.message);
+    }
+  }, 2 * 60 * 1000);
+}
+
 /**
  * Scans local storage and Supabase DB to automatically boot all available WhatsApp sessions.
  */
 export async function initAllWhatsAppSessions(): Promise<void> {
   console.log('[WhatsApp Manager] Initializing all WhatsApp sessions...');
 
-  // 1. Collect all known session IDs from disk and Supabase settings
+  // 1. Collect all known session IDs from disk, active PGs, and Supabase settings
   const knownPgIds = new Set<string>(['default']);
+
+  // Check active PGs in database
+  try {
+    const { data: activePgs } = await supabaseAdmin
+      .from('pgs')
+      .select('id, name')
+      .eq('is_active', true);
+    if (activePgs) {
+      for (const pg of activePgs) {
+        knownPgIds.add(pg.id);
+      }
+    }
+  } catch (e: any) {
+    console.warn('[WhatsApp Manager] Error fetching active PGs:', e.message);
+  }
 
   // Check disk subdirectories
   try {
@@ -576,6 +737,9 @@ export async function initAllWhatsAppSessions(): Promise<void> {
       );
     }
   }
+
+  // 3. Start 24/7 background session watchdog
+  startWhatsAppWatchdog();
 }
 
 // Backward-compatible alias for single-session callers
