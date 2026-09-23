@@ -5,8 +5,8 @@ import { useToast } from '../components/ui/Toast';
 import { useAuth } from '../hooks/useAuth';
 import { apiGet, apiPost, apiPatch, formatCurrency, formatMonth } from '../lib/api';
 import { formatDate } from '../lib/date';
-import { printElement } from '../lib/printHelper';
-import { Banknote, Plus, Printer, FileText, Send } from 'lucide-react';
+import { Banknote, Plus, FileText, Send } from 'lucide-react';
+import { RentInvoiceModal } from '../components/billing/RentInvoiceModal';
 
 interface RentRecord {
   id: string;
@@ -21,7 +21,7 @@ interface RentRecord {
 }
 
 export default function AdminRent() {
-  const { pg, pgName } = useAuth();
+  const { pg } = useAuth();
   const currentMonthStr = new Date().toISOString().slice(0, 7);
   const [records, setRecords] = React.useState<RentRecord[]>([]);
   const [isLoading, setIsLoading] = React.useState(true);
@@ -253,107 +253,16 @@ export default function AdminRent() {
         </FormField>
       </Modal>
 
-      {/* Itemized Bill / Invoice Modal */}
+      {/* Professional Redesigned Invoice & Bill Modal */}
       {selectedBill && (
-        <Modal
+        <RentInvoiceModal
           isOpen={!!selectedBill}
           onClose={() => setSelectedBill(null)}
-          title="Rent Invoice & Bill"
-          size="md"
-          footer={
-            <div style={{ display: 'flex', gap: '8px', justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
-              <Button variant="secondary" onClick={() => setSelectedBill(null)}>Close</Button>
-              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                <Button
-                  variant="secondary"
-                  onClick={() => sendWhatsAppBill(selectedBill.id)}
-                  isLoading={sendingWaId === selectedBill.id}
-                  disabled={Boolean(sendingWaId && sendingWaId !== selectedBill.id)}
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-                >
-                  <Send size={15} /> Send on WhatsApp
-                </Button>
-                <Button onClick={() => printElement('printable-rent-bill', `Invoice-${selectedBill.month}-${selectedBill.id.slice(0, 6)}`)}>
-                  <Printer size={16} /> Print Invoice
-                </Button>
-              </div>
-            </div>
-          }
-        >
-          <div id="printable-rent-bill" style={{ padding: '8px 4px' }}>
-            {/* Header / PG details */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '2px solid var(--color-border)', paddingBottom: '16px', marginBottom: '16px' }}>
-              <div>
-                <h2 style={{ margin: 0, fontSize: 'var(--font-size-xl)', fontWeight: 700, color: 'var(--color-primary)' }}>
-                  {pg?.name || pgName || 'PG Management'}
-                </h2>
-                {pg?.address && <p style={{ margin: '4px 0 0', fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>{pg.address}</p>}
-                {pg?.phone && <p style={{ margin: '2px 0 0', fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>Phone: {pg.phone}</p>}
-              </div>
-              <div style={{ textAlign: 'right' }}>
-                <span style={{ fontSize: 'var(--font-size-xs)', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-text-muted)', fontWeight: 600 }}>INVOICE</span>
-                <div style={{ fontSize: 'var(--font-size-sm)', fontWeight: 600, fontFamily: 'monospace', marginTop: '2px' }}>
-                  INV-{selectedBill.month.replace('-', '')}-{selectedBill.id.slice(0, 6).toUpperCase()}
-                </div>
-                <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', marginTop: '4px' }}>
-                  Date: {formatDate(new Date().toISOString())}
-                </div>
-              </div>
-            </div>
-
-            {/* Bill To & Details */}
-            <div className="form-grid-2" style={{ marginBottom: '20px', backgroundColor: 'var(--color-bg-surface-alt)', padding: '12px 16px', borderRadius: 'var(--radius-md)' }}>
-              <div>
-                <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', textTransform: 'uppercase', fontWeight: 600, marginBottom: '4px' }}>Billed To</div>
-                <div style={{ fontWeight: 600, fontSize: 'var(--font-size-base)' }}>{selectedBill.tenant?.full_name || 'Resident'}</div>
-                {selectedBill.tenant?.phone && <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>Contact: {selectedBill.tenant.phone}</div>}
-                {selectedBill.room?.room_number && <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>Room: {selectedBill.room.room_number}</div>}
-              </div>
-              <div style={{ textAlign: 'right' }}>
-                <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', textTransform: 'uppercase', fontWeight: 600, marginBottom: '4px' }}>Billing Period</div>
-                <div style={{ fontWeight: 600, fontSize: 'var(--font-size-base)' }}>{formatMonth(selectedBill.month)}</div>
-                <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>Due Date: <strong>{formatDate(selectedBill.due_date)}</strong></div>
-                <div style={{ marginTop: '6px' }}>
-                  <Badge variant={getStatusBadgeVariant(selectedBill.status)}>{selectedBill.status.toUpperCase()}</Badge>
-                </div>
-              </div>
-            </div>
-
-            {/* Itemized Table */}
-            <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '20px' }}>
-              <thead>
-                <tr style={{ borderBottom: '1px solid var(--color-border)', backgroundColor: 'var(--color-bg-surface-alt)' }}>
-                  <th style={{ textAlign: 'left', padding: '10px 12px', fontSize: 'var(--font-size-xs)', textTransform: 'uppercase', color: 'var(--color-text-secondary)' }}>Item Description</th>
-                  <th style={{ textAlign: 'right', padding: '10px 12px', fontSize: 'var(--font-size-xs)', textTransform: 'uppercase', color: 'var(--color-text-secondary)' }}>Amount</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr style={{ borderBottom: '1px solid var(--color-border)' }}>
-                  <td style={{ padding: '12px' }}>
-                    <div style={{ fontWeight: 500 }}>Monthly Room Rent</div>
-                    <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>Period: {formatMonth(selectedBill.month)}</div>
-                  </td>
-                  <td style={{ padding: '12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 500 }}>
-                    {formatCurrency(selectedBill.rent_amount_paise)}
-                  </td>
-                </tr>
-              </tbody>
-              <tfoot>
-                <tr>
-                  <td style={{ padding: '12px', fontWeight: 700, fontSize: 'var(--font-size-base)' }}>Total Amount Due</td>
-                  <td style={{ padding: '12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 700, fontSize: 'var(--font-size-lg)', color: 'var(--color-primary)' }}>
-                    {formatCurrency(selectedBill.total_due_paise)}
-                  </td>
-                </tr>
-              </tfoot>
-            </table>
-
-            {/* Note */}
-            <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', textAlign: 'center', borderTop: '1px dashed var(--color-border)', paddingTop: '12px' }}>
-              This is a computer-generated invoice from {pg?.name || pgName || 'PG Management'}. All dates are in DD/MM/YYYY format.
-            </div>
-          </div>
-        </Modal>
+          record={selectedBill as any}
+          currentPG={pg}
+          onSendWhatsApp={sendWhatsAppBill}
+          isSendingWhatsApp={Boolean(sendingWaId)}
+        />
       )}
     </div>
   );

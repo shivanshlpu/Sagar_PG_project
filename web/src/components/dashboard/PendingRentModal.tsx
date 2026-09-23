@@ -14,7 +14,10 @@ import {
   Calendar,
   Phone,
   RefreshCw,
+  FileText,
 } from 'lucide-react';
+import { useAuth } from '../../hooks/useAuth';
+import { RentInvoiceModal } from '../billing/RentInvoiceModal';
 
 interface RentRecordItem {
   id: string;
@@ -44,6 +47,7 @@ interface PendingRentModalProps {
 
 export function PendingRentModal({ isOpen, onClose, onRecordUpdated }: PendingRentModalProps) {
   const { showToast } = useToast();
+  const { pg } = useAuth();
   const [records, setRecords] = React.useState<RentRecordItem[]>([]);
   const [isLoading, setIsLoading] = React.useState(true);
   const [searchQuery, setSearchQuery] = React.useState('');
@@ -51,6 +55,7 @@ export function PendingRentModal({ isOpen, onClose, onRecordUpdated }: PendingRe
   const [sendingReminderId, setSendingReminderId] = React.useState<string | null>(null);
   const [isSendingAllReminders, setIsSendingAllReminders] = React.useState(false);
   const [updatingStatusId, setUpdatingStatusId] = React.useState<string | null>(null);
+  const [selectedInvoiceRecord, setSelectedInvoiceRecord] = React.useState<RentRecordItem | null>(null);
 
   React.useEffect(() => {
     if (isOpen) {
@@ -377,6 +382,18 @@ export function PendingRentModal({ isOpen, onClose, onRecordUpdated }: PendingRe
 
                   {/* Actions Row */}
                   <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '8px', paddingTop: '8px', borderTop: '1px solid var(--color-border)', flexWrap: 'wrap' }}>
+                    {/* View & Print Official Bill */}
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setSelectedInvoiceRecord(r)}
+                      style={{ fontSize: '12px', padding: '6px 10px', display: 'flex', alignItems: 'center', gap: '5px' }}
+                      title="View & Print Official Bill"
+                    >
+                      <FileText size={13} />
+                      Invoice
+                    </Button>
+
                     {/* WhatsApp Reminder Button */}
                     {!isPaid && (
                       <Button
@@ -432,6 +449,17 @@ export function PendingRentModal({ isOpen, onClose, onRecordUpdated }: PendingRe
           )}
         </div>
       </div>
+
+      {/* Official Bill Invoice Modal */}
+      {selectedInvoiceRecord && (
+        <RentInvoiceModal
+          isOpen={!!selectedInvoiceRecord}
+          onClose={() => setSelectedInvoiceRecord(null)}
+          record={selectedInvoiceRecord as any}
+          currentPG={pg}
+          onSendWhatsApp={handleSendSingleReminder as any}
+        />
+      )}
     </Modal>
   );
 }

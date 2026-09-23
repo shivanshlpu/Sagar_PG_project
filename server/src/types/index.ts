@@ -16,6 +16,10 @@ export interface PG {
   id: string;
   owner_id: string;
   name: string;
+  owner_name?: string | null;
+  tagline?: string | null;
+  logo_url?: string | null;
+  code?: string | null;
   phone?: string | null;
   email?: string | null;
   address?: string | null;

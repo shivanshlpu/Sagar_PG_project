@@ -49,6 +49,9 @@ export const changePasswordSchema = z.object({
 // -- PG Schemas --
 export const updatePGSchema = z.object({
   name: z.string().min(1).max(200).optional(),
+  owner_name: z.string().max(200).nullable().optional(),
+  tagline: z.string().max(200).nullable().optional(),
+  logo_url: z.string().nullable().optional(),
   phone: z.string().max(15).nullable().optional(),
   email: z.string().email().nullable().optional(),
   address: z.string().nullable().optional(),

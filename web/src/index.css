@@ -560,6 +560,11 @@ input[type="number"] {
    Print Styles for Invoices and Receipts
    ============================================================ */
 
+@page {
+  size: A4 portrait;
+  margin: 8mm;
+}
+
 @media print {
   body * {
     visibility: hidden;
@@ -569,7 +574,22 @@ input[type="number"] {
   #printable-reports-page, #printable-reports-page * {
     visibility: visible;
   }
-  #printable-rent-bill, #printable-payment-receipt, #printable-reports-page {
+  #printable-rent-bill {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 10mm 12mm !important;
+    background: #ffffff !important;
+    color: #0f172a !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  #printable-payment-receipt, #printable-reports-page {
     position: absolute;
     left: 0;
     top: 0;

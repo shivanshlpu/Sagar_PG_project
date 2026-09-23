@@ -72,15 +72,133 @@ export default function AdminSettings() {
   const { language, setLanguage, t } = useLanguage();
   const [searchParams, setSearchParams] = useSearchParams();
   const tabParam = searchParams.get('tab');
-  const activeTab: 'wifi' | 'whatsapp' | 'reminders' | 'billing' | 'banking' | 'appearance' | 'security' =
-    tabParam === 'whatsapp' || tabParam === 'reminders' || tabParam === 'billing' || tabParam === 'banking' || tabParam === 'appearance' || tabParam === 'security' ? tabParam : 'wifi';
+  const activeTab: 'profile' | 'wifi' | 'whatsapp' | 'reminders' | 'billing' | 'banking' | 'appearance' | 'security' =
+    tabParam === 'wifi' || tabParam === 'whatsapp' || tabParam === 'reminders' || tabParam === 'billing' || tabParam === 'banking' || tabParam === 'appearance' || tabParam === 'security'
+      ? tabParam
+      : 'profile';
 
-  const setActiveTab = React.useCallback((tab: 'wifi' | 'whatsapp' | 'reminders' | 'billing' | 'banking' | 'appearance' | 'security') => {
+  const setActiveTab = React.useCallback((tab: 'profile' | 'wifi' | 'whatsapp' | 'reminders' | 'billing' | 'banking' | 'appearance' | 'security') => {
     setSearchParams({ tab }, { replace: true });
   }, [setSearchParams]);
 
   const { showToast } = useToast();
-  const { pg } = useAuth();
+  const { pg, refreshPG } = useAuth();
+
+  // --- PG Profile & Branding State ---
+  const [profileForm, setProfileForm] = React.useState({
+    name: '',
+    owner_name: '',
+    tagline: 'PREMIUM PG LIVING',
+    phone: '',
+    email: '',
+    address: '',
+    city: '',
+    state: '',
+    pincode: '',
+    logo_url: null as string | null,
+  });
+  const [isSavingProfile, setIsSavingProfile] = React.useState(false);
+  const logoFileInputRef = React.useRef<HTMLInputElement | null>(null);
+
+  React.useEffect(() => {
+    if (pg) {
+      setProfileForm({
+        name: pg.name || '',
+        owner_name: pg.owner_name || '',
+        tagline: pg.tagline || 'PREMIUM PG LIVING',
+        phone: pg.phone || '',
+        email: pg.email || '',
+        address: pg.address || '',
+        city: pg.city || '',
+        state: pg.state || '',
+        pincode: pg.pincode || '',
+        logo_url: pg.logo_url || null,
+      });
+    }
+  }, [pg]);
+
+  function handleLogoUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const validTypes = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp'];
+    if (!validTypes.includes(file.type)) {
+      showToast('Please upload a valid image file (PNG, JPG, JPEG, WEBP)', 'error');
+      return;
+    }
+
+    if (file.size > 2 * 1024 * 1024) {
+      showToast('Logo image must be smaller than 2MB', 'error');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let width = img.width;
+        let height = img.height;
+        const maxWidth = 420;
+        const maxHeight = 180;
+        const ratio = Math.min(maxWidth / width, maxHeight / height, 1);
+        canvas.width = Math.round(width * ratio);
+        canvas.height = Math.round(height * ratio);
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          const outputFormat = file.type === 'image/png' ? 'image/png' : 'image/jpeg';
+          const dataUrl = canvas.toDataURL(outputFormat, 0.9);
+          setProfileForm((prev) => ({ ...prev, logo_url: dataUrl }));
+          showToast('Logo ready! Click "Save Changes" to apply.');
+        }
+      };
+      img.src = event.target?.result as string;
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function handleRemoveLogo() {
+    setProfileForm((prev) => ({ ...prev, logo_url: null }));
+    if (logoFileInputRef.current) {
+      logoFileInputRef.current.value = '';
+    }
+    showToast('Logo removed. Click "Save Changes" to save.');
+  }
+
+  async function handleSaveProfile() {
+    if (!profileForm.name.trim()) {
+      showToast('PG Name is required', 'error');
+      return;
+    }
+    setIsSavingProfile(true);
+    try {
+      const res = await apiPatch('/pg', {
+        name: profileForm.name.trim(),
+        owner_name: profileForm.owner_name.trim() || null,
+        tagline: profileForm.tagline.trim() || null,
+        phone: profileForm.phone.trim() || null,
+        email: profileForm.email.trim() || null,
+        address: profileForm.address.trim() || null,
+        city: profileForm.city.trim() || null,
+        state: profileForm.state.trim() || null,
+        pincode: profileForm.pincode.trim() || null,
+        logo_url: profileForm.logo_url,
+      });
+
+      if (res.success) {
+        showToast('PG Profile updated successfully!');
+        await refreshPG();
+      } else {
+        showToast(res.error || 'Failed to update PG Profile', 'error');
+      }
+    } catch (err: any) {
+      showToast(err?.message || 'Error updating PG Profile', 'error');
+    } finally {
+      setIsSavingProfile(false);
+    }
+  }
 
   // --- Wi-Fi State ---
   const [networks, setNetworks] = React.useState<WifiNetwork[]>([]);
@@ -677,6 +795,26 @@ export default function AdminSettings() {
       {/* Tabs */}
       <div style={tabContainerStyle}>
         <button
+          onClick={() => setActiveTab('profile')}
+          style={activeTab === 'profile' ? activeTabStyle : inactiveTabStyle}
+        >
+          <Building2 size={18} />
+          <span>PG Profile</span>
+          {profileForm.logo_url && (
+            <span
+              style={{
+                width: '7px',
+                height: '7px',
+                borderRadius: '50%',
+                backgroundColor: 'var(--color-success)',
+                display: 'inline-block',
+              }}
+              title="Logo Active"
+            />
+          )}
+        </button>
+
+        <button
           onClick={() => setActiveTab('wifi')}
           style={activeTab === 'wifi' ? activeTabStyle : inactiveTabStyle}
         >
@@ -768,6 +906,261 @@ export default function AdminSettings() {
           <span>Security</span>
         </button>
       </div>
+
+      {/* TAB 0: PG PROFILE & BRANDING */}
+      {activeTab === 'profile' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          <div>
+            <h2 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 600 }}>PG Profile & Branding</h2>
+            <p style={{ color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-sm)', marginTop: '2px' }}>
+              Manage your official property name, owner identity, contact details, and brand logo. All generated rent invoices, WhatsApp bills, and resident receipts automatically use these details.
+            </p>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(280px, 340px) 1fr', gap: '20px', alignItems: 'flex-start' }}>
+            {/* Left Card: PG Logo & Branding Card */}
+            <Card padding="lg" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <h3 style={{ fontSize: 'var(--font-size-md)', fontWeight: 600, margin: 0 }}>
+                  Property Logo
+                </h3>
+                {profileForm.logo_url && (
+                  <Badge variant="success">Logo Active</Badge>
+                )}
+              </div>
+
+              {/* Logo Preview Area */}
+              <div style={{
+                height: '160px',
+                borderRadius: 'var(--radius-md)',
+                border: '2px dashed var(--color-border)',
+                backgroundColor: 'var(--color-bg-surface-alt)',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: '16px',
+                textAlign: 'center',
+                position: 'relative',
+                overflow: 'hidden',
+              }}>
+                {profileForm.logo_url ? (
+                  <img
+                    src={profileForm.logo_url}
+                    alt="PG Logo Preview"
+                    style={{
+                      maxHeight: '120px',
+                      maxWidth: '100%',
+                      objectFit: 'contain',
+                      borderRadius: '4px',
+                    }}
+                  />
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', color: 'var(--color-text-muted)' }}>
+                    <div style={{
+                      width: '54px',
+                      height: '54px',
+                      borderRadius: '12px',
+                      backgroundColor: 'rgba(15, 118, 110, 0.08)',
+                      color: 'var(--color-primary)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}>
+                      <Building2 size={28} />
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 'var(--font-size-sm)', fontWeight: 600, color: 'var(--color-text-secondary)' }}>
+                        No Logo Uploaded
+                      </div>
+                      <div style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>
+                        Invoices will display property initials
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Hidden File Input */}
+              <input
+                type="file"
+                ref={logoFileInputRef}
+                accept="image/png,image/jpeg,image/jpg,image/webp"
+                style={{ display: 'none' }}
+                onChange={handleLogoUpload}
+              />
+
+              {/* Upload / Replace / Remove Buttons */}
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => logoFileInputRef.current?.click()}
+                  style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
+                >
+                  <Upload size={14} />
+                  {profileForm.logo_url ? 'Replace Logo' : 'Upload Logo'}
+                </Button>
+
+                {profileForm.logo_url && (
+                  <Button
+                    variant="danger"
+                    size="sm"
+                    onClick={handleRemoveLogo}
+                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}
+                    title="Remove Logo"
+                  >
+                    <Trash2 size={14} />
+                  </Button>
+                )}
+              </div>
+
+              {/* Helper specs */}
+              <div style={{ fontSize: '11px', color: 'var(--color-text-muted)', lineHeight: 1.5, borderTop: '1px solid var(--color-border)', paddingTop: '12px' }}>
+                <div>• Supported: PNG, JPG, JPEG, WEBP</div>
+                <div>• Maximum file size: 2MB</div>
+                <div>• Auto-optimized for crisp A4 invoice printing</div>
+              </div>
+
+              {/* Property Code Section */}
+              {pg?.code && (
+                <div style={{
+                  backgroundColor: 'var(--color-bg-surface-alt)',
+                  borderRadius: 'var(--radius-md)',
+                  padding: '12px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  border: '1px solid var(--color-border)',
+                }}>
+                  <div>
+                    <div style={{ fontSize: '11px', color: 'var(--color-text-muted)', fontWeight: 600 }}>PROPERTY CODE</div>
+                    <div style={{ fontSize: '16px', fontWeight: 800, color: 'var(--color-primary)', fontFamily: 'monospace' }}>
+                      {pg.code}
+                    </div>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => {
+                      navigator.clipboard.writeText(pg.code || '');
+                      showToast(`Copied PG Code: ${pg.code}`);
+                    }}
+                    style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px', padding: '4px 8px' }}
+                  >
+                    <Copy size={13} /> Copy
+                  </Button>
+                </div>
+              )}
+            </Card>
+
+            {/* Right Card: Main Profile Form */}
+            <Card padding="lg" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <h3 style={{ fontSize: 'var(--font-size-md)', fontWeight: 600, margin: 0 }}>
+                Business & Contact Details
+              </h3>
+
+              <div className="form-grid-2" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '16px' }}>
+                <FormField label="Owner's Name" required hint="Printed as 'Owner: [Name]' on invoice headers">
+                  <Input
+                    placeholder="e.g. Rajesh Kumar"
+                    value={profileForm.owner_name}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setProfileForm(p => ({ ...p, owner_name: e.target.value }))}
+                  />
+                </FormField>
+
+                <FormField label="PG / Property Name" required hint="Trading title on invoice and resident portal">
+                  <Input
+                    placeholder="e.g. Sunrise Residency"
+                    value={profileForm.name}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setProfileForm(p => ({ ...p, name: e.target.value }))}
+                  />
+                </FormField>
+              </div>
+
+              <div className="form-grid-2" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '16px' }}>
+                <FormField label="Tagline / Subtitle" hint="e.g. PREMIUM PG LIVING">
+                  <Input
+                    placeholder="e.g. PREMIUM PG LIVING"
+                    value={profileForm.tagline}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setProfileForm(p => ({ ...p, tagline: e.target.value }))}
+                  />
+                </FormField>
+
+                <FormField label="Contact Phone Number" required hint="Printed for resident inquiries">
+                  <Input
+                    type="tel"
+                    placeholder="e.g. +91 98765 43210"
+                    value={profileForm.phone}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setProfileForm(p => ({ ...p, phone: e.target.value }))}
+                  />
+                </FormField>
+              </div>
+
+              <FormField label="Official Email Address" hint="Printed on invoices for resident correspondence">
+                <Input
+                  type="email"
+                  placeholder="e.g. sunriseresidency@gmail.com"
+                  value={profileForm.email}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setProfileForm(p => ({ ...p, email: e.target.value }))}
+                />
+              </FormField>
+
+              {/* Complete Address */}
+              <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: '16px' }}>
+                <h4 style={{ fontSize: 'var(--font-size-sm)', fontWeight: 600, color: 'var(--color-text-primary)', marginBottom: '12px' }}>
+                  Property Location & Address
+                </h4>
+
+                <FormField label="Complete Street Address" required hint="e.g. 123, 5th Cross, Koramangala">
+                  <Input
+                    placeholder="e.g. 123, 5th Cross, Koramangala"
+                    value={profileForm.address}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setProfileForm(p => ({ ...p, address: e.target.value }))}
+                  />
+                </FormField>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '12px', marginTop: '12px' }}>
+                  <FormField label="City">
+                    <Input
+                      placeholder="e.g. Bengaluru"
+                      value={profileForm.city}
+                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => setProfileForm(p => ({ ...p, city: e.target.value }))}
+                    />
+                  </FormField>
+
+                  <FormField label="State">
+                    <Input
+                      placeholder="e.g. Karnataka"
+                      value={profileForm.state}
+                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => setProfileForm(p => ({ ...p, state: e.target.value }))}
+                    />
+                  </FormField>
+
+                  <FormField label="Pincode">
+                    <Input
+                      placeholder="e.g. 560034"
+                      value={profileForm.pincode}
+                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => setProfileForm(p => ({ ...p, pincode: e.target.value }))}
+                    />
+                  </FormField>
+                </div>
+              </div>
+
+              {/* Save Button */}
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '8px' }}>
+                <Button
+                  onClick={handleSaveProfile}
+                  isLoading={isSavingProfile}
+                  style={{ minWidth: '160px' }}
+                >
+                  <Check size={16} /> Save Changes
+                </Button>
+              </div>
+            </Card>
+          </div>
+        </div>
+      )}
 
       {/* TAB 1: WI-FI NETWORKS */}
       {activeTab === 'wifi' && (

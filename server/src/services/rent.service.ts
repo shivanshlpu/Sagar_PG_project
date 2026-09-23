@@ -2,6 +2,7 @@ import { supabaseAdmin } from '../config/supabase';
 import { logAudit } from './auditLog.service';
 import { getBillingSettings } from './settings.service';
 import { sendWhatsAppMessage, decodeBase64Image } from './whatsapp.service';
+import { getPG } from './pg.service';
 import { formatDateDMY, formatMonthMY } from '../utils/date';
 
 export async function ensureCurrentMonthRent(pgId: string, targetMonth?: string) {
@@ -47,6 +48,30 @@ export async function ensureCurrentMonthRent(pgId: string, targetMonth?: string)
       }
     }
 
+    let pgProfileSnapshot: any = null;
+    try {
+      const p = await getPG(pgId);
+      pgProfileSnapshot = {
+        name: p.name,
+        owner_name: p.owner_name || null,
+        tagline: p.tagline || 'PREMIUM PG LIVING',
+        address: p.address || null,
+        city: p.city || null,
+        state: p.state || null,
+        pincode: p.pincode || null,
+        phone: p.phone || null,
+        email: p.email || null,
+        logo_url: p.logo_url || null,
+        upi_id: p.upi_id || null,
+        bank_name: p.bank_name || null,
+        account_number: p.account_number || null,
+        ifsc_code: p.ifsc_code || null,
+        account_holder_name: p.account_holder_name || null,
+      };
+    } catch {
+      // Gracefully proceed if PG profile cannot be resolved
+    }
+
     const records = missingTenants.map((tenant) => {
       const tenantData = tenant as any;
       const baseRent = Array.isArray(tenantData.rooms)
@@ -66,6 +91,7 @@ export async function ensureCurrentMonthRent(pgId: string, targetMonth?: string)
         electricity_rate_per_unit_paise: elBill?.rate_per_unit_paise || billingSettings.electricity_rate_per_unit_paise,
         electricity_amount_paise: elAmount,
         total_due_paise: totalDue,
+        pg_snapshot: pgProfileSnapshot,
       });
 
       return {
@@ -148,7 +174,18 @@ export async function getRentRecord(pgId: string, id: string, tenantId?: string)
 
   const { data, error } = await query.single();
   if (error || !data) throw new Error('Rent record not found');
-  return data;
+
+  let pgProfile: any = null;
+  try {
+    pgProfile = await getPG(pgId);
+  } catch (err) {
+    console.warn('[RentService] Failed to load PG profile for rent record:', err);
+  }
+
+  return {
+    ...data,
+    pg: pgProfile,
+  };
 }
 
 export async function generateRentRecords(
@@ -205,6 +242,30 @@ export async function generateRentRecords(
     }
   }
 
+  let pgProfileSnapshot: any = null;
+  try {
+    const p = await getPG(pgId);
+    pgProfileSnapshot = {
+      name: p.name,
+      owner_name: p.owner_name || null,
+      tagline: p.tagline || 'PREMIUM PG LIVING',
+      address: p.address || null,
+      city: p.city || null,
+      state: p.state || null,
+      pincode: p.pincode || null,
+      phone: p.phone || null,
+      email: p.email || null,
+      logo_url: p.logo_url || null,
+      upi_id: p.upi_id || null,
+      bank_name: p.bank_name || null,
+      account_number: p.account_number || null,
+      ifsc_code: p.ifsc_code || null,
+      account_holder_name: p.account_holder_name || null,
+    };
+  } catch {
+    // Gracefully proceed
+  }
+
   const records = tenants
     .filter(t => !existingTenantIds.has(t.id))
     .map(tenant => {
@@ -226,6 +287,7 @@ export async function generateRentRecords(
         electricity_rate_per_unit_paise: elBill?.rate_per_unit_paise || billingSettings.electricity_rate_per_unit_paise,
         electricity_amount_paise: elAmount,
         total_due_paise: totalDue,
+        pg_snapshot: pgProfileSnapshot,
       });
 
       return {
@@ -482,6 +544,7 @@ export async function getTenantBillingSummary(pgId: string, tenantId: string) {
     rentRecords: allRent,
     electricityBills: electricityBills || [],
     payments: payments || [],
+    pgProfile: await getPG(pgId),
   };
 }
 
@@ -496,11 +559,7 @@ export async function sendRentBillWhatsApp(pgId: string, rentRecordId: string) {
   if (error || !record) throw new Error('Rent record not found');
   if (!record.tenant?.phone) throw new Error('Tenant has no registered phone number');
 
-  const { data: pg } = await supabaseAdmin
-    .from('pgs')
-    .select('name, address, phone, upi_id, bank_name, account_number, ifsc_code, account_holder_name')
-    .eq('id', pgId)
-    .single();
+  const pg = await getPG(pgId);
 
   const { data: qrData } = await supabaseAdmin
     .from('settings')
@@ -509,7 +568,7 @@ export async function sendRentBillWhatsApp(pgId: string, rentRecordId: string) {
     .maybeSingle();
 
   const paymentQrStr = qrData?.value ? (typeof qrData.value === 'string' ? qrData.value : (qrData.value.qr || qrData.value.url || null)) : null;
-  const qrBuffer = paymentQrStr ? decodeBase64Image(paymentQrStr) : null;
+  const qrBuffer = paymentQrStr ? decodeBase64Image(paymentQrStr) : (pg.logo_url ? decodeBase64Image(pg.logo_url) : null);
 
   const pgName = pg?.name || 'Sagar PG';
   const tenantName = (record.tenant as any)?.full_name || 'Resident';
@@ -530,12 +589,13 @@ export async function sendRentBillWhatsApp(pgId: string, rentRecordId: string) {
       paymentDetails += `• Name: *${pg.account_holder_name}*\n`;
     }
   }
-  if (qrBuffer) {
+  if (paymentQrStr) {
     paymentDetails += `📸 *Payment QR code is attached above. Scan & pay via any UPI app.*\n`;
   }
 
   const invoiceMsg =
     `📋 *RENT INVOICE — ${pgName.toUpperCase()}*\n` +
+    (pg.tagline ? `_${pg.tagline}_\n` : '') +
     `━━━━━━━━━━━━━━━━━━━━\n` +
     `Dear *${tenantName}*,\n\n` +
     `Invoice: *${invoiceNo}*\n` +
@@ -547,7 +607,11 @@ export async function sendRentBillWhatsApp(pgId: string, rentRecordId: string) {
     `Status: *${record.status.toUpperCase()}*\n` +
     `━━━━━━━━━━━━━━━━━━━━\n` +
     (paymentDetails ? `*Payment Details*:\n${paymentDetails}\n` : '') +
-    `After paying, enter your UTR / Reference ID in the resident portal so we can verify and mark it as paid.`;
+    (pg.phone ? `📞 Contact: *${pg.phone}*\n` : '') +
+    (pg.owner_name ? `👤 Owner: *${pg.owner_name}*\n` : '') +
+    (pg.address ? `📍 Address: ${pg.address}\n` : '') +
+    `\nThank you for staying with us!\n` +
+    `*Team ${pgName}*`;
 
   await sendWhatsAppMessage(record.tenant.phone, invoiceMsg, { pgId: record.pg_id, imageBuffer: qrBuffer });
   return { success: true, message: `Invoice sent to ${record.tenant.phone}` };
