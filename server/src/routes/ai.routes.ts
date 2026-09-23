@@ -1,10 +1,10 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { queryPGAgent, getSuggestedQuestions } from '../services/ai.service';
-import { authenticate, authorize, requirePg } from '../middleware/auth';
+import { authenticate, authorize, requirePg, enforcePgBoundary } from '../middleware/auth';
 
 const router = Router();
 
-router.use(authenticate, requirePg, authorize('admin'));
+router.use(authenticate, requirePg, authorize('admin'), enforcePgBoundary);
 
 // POST /api/v1/ai/query
 router.post('/query', async (req: Request, res: Response, _next: NextFunction) => {

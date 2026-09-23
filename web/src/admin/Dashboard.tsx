@@ -19,6 +19,7 @@ import {
   ArrowRight,
 } from 'lucide-react';
 import { AIAssistantModal } from '../components/ai/AIAssistantModal';
+import { PendingRentModal } from '../components/dashboard/PendingRentModal';
 
 interface DashboardData {
   rooms: { total: number; available: number; full: number };
@@ -39,6 +40,7 @@ export default function AdminDashboard() {
   const [data, setData] = React.useState<DashboardData | null>(null);
   const [isLoading, setIsLoading] = React.useState(true);
   const [isAIOpen, setIsAIOpen] = React.useState(false);
+  const [isPendingRentOpen, setIsPendingRentOpen] = React.useState(false);
 
   React.useEffect(() => {
     loadDashboardData();
@@ -113,24 +115,21 @@ export default function AdminDashboard() {
     <div className="page-container">
       <h1 className="page-title">Dashboard</h1>
 
-      {/* Summary Cards */}
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))',
-        gap: '16px',
-        marginBottom: '24px',
-      }}>
+      {/* Summary Cards — 2 columns side-by-side on mobile, responsive grid on desktop */}
+      <div className="dashboard-metrics-grid">
         <MetricCard
           label="Total Rooms"
           value={data?.rooms.total || 0}
           icon={<DoorOpen size={22} />}
           trend={{ value: `${data?.rooms.available || 0} available`, isPositive: true }}
+          onClick={() => navigate('/admin/rooms')}
         />
         <MetricCard
           label="Active Tenants"
           value={data?.tenants.active || 0}
           icon={<Users size={22} />}
           trend={{ value: `${data?.tenants.total || 0} total`, isPositive: true }}
+          onClick={() => navigate('/admin/tenants')}
         />
         <MetricCard
           label="Pending Rent"
@@ -140,22 +139,26 @@ export default function AdminDashboard() {
             value: `${data?.rent.overdue || 0} overdue`,
             isPositive: (data?.rent.overdue || 0) === 0,
           }}
+          onClick={() => setIsPendingRentOpen(true)}
         />
         <MetricCard
           label="Rent Pending Count"
           value={data?.rent.pending || 0}
           icon={<CreditCard size={22} />}
+          onClick={() => setIsPendingRentOpen(true)}
         />
         <MetricCard
           label="Open Complaints"
           value={(data?.complaints.open || 0) + (data?.complaints.inProgress || 0)}
           icon={<MessageSquareWarning size={22} />}
           trend={{ value: `${data?.complaints.inProgress || 0} in progress`, isPositive: true }}
+          onClick={() => navigate('/admin/complaints')}
         />
         <MetricCard
           label="Rooms Full"
           value={data?.rooms.full || 0}
           icon={<Zap size={22} />}
+          onClick={() => navigate('/admin/rooms')}
         />
       </div>
 
@@ -365,6 +368,13 @@ export default function AdminDashboard() {
 
       {/* AIAssistantModal */}
       <AIAssistantModal isOpen={isAIOpen} onClose={() => setIsAIOpen(false)} />
+
+      {/* Pending Rent Drill-down Modal */}
+      <PendingRentModal
+        isOpen={isPendingRentOpen}
+        onClose={() => setIsPendingRentOpen(false)}
+        onRecordUpdated={loadDashboardData}
+      />
     </div>
   );
 }

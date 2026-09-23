@@ -35,15 +35,18 @@ type Language = 'hinglish' | 'hi' | 'en';
 export function AIAssistantModal({ isOpen, onClose }: AIAssistantModalProps) {
   const { user } = useAuth();
   if (!isOpen || user?.role !== 'admin') return null;
-  return <AIAssistantModalContent onClose={onClose} />;
+  return <AIAssistantModalContent key={user?.pgId || 'default'} onClose={onClose} />;
 }
 
 function AIAssistantModalContent({ onClose }: { onClose: () => void }) {
+  const { pg, pgName } = useAuth();
+  const activePgName = pg?.name || pgName || 'My PG';
+
   const [messages, setMessages] = React.useState<Message[]>([
     {
       id: 'welcome',
       sender: 'ai',
-      text: 'Namaste! Main aapka PG AI Sahayak hoon. Niche diye gaye kisi bhi sawal par click karein ya apna sawal likhein / bolein:',
+      text: `Namaste! Main "${activePgName}" ka AI Sahayak hoon. Niche diye gaye kisi bhi sawal par click karein ya apna sawal likhein / bolein:`,
       time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     },
   ]);
@@ -312,25 +315,30 @@ function AIAssistantModalContent({ onClose }: { onClose: () => void }) {
               <Bot size={20} />
             </div>
             <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
                 <span style={{ fontSize: '15px', fontWeight: 700, color: 'var(--color-primary)' }}>
                   PG AI Sahayak
                 </span>
                 <span
                   style={{
                     fontSize: '10px',
-                    padding: '2px 6px',
+                    padding: '2px 8px',
                     backgroundColor: 'var(--color-primary)',
                     color: '#ffffff',
                     borderRadius: 'var(--radius-full)',
                     fontWeight: 600,
+                    maxWidth: '160px',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
                   }}
+                  title={activePgName}
                 >
-                  LIVE DB
+                  {activePgName}
                 </span>
               </div>
-              <p style={{ fontSize: '11px', color: 'var(--color-text-secondary)', margin: 0 }}>
-                {language === 'hi' ? 'केवल आपके PG डेटा से उत्तर देता है' : 'Answers based strictly on your PG database'}
+              <p style={{ fontSize: '11px', color: 'var(--color-text-secondary)', margin: '2px 0 0' }}>
+                {language === 'hi' ? `केवल "${activePgName}" के डेटा से उत्तर देता है` : `Dedicated assistant strictly for ${activePgName}`}
               </p>
             </div>
           </div>

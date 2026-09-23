@@ -326,6 +326,8 @@ export async function updateRentRecord(
     } catch (payErr: any) {
       console.warn('[RentService] Auto-create payment entry notice:', payErr?.message);
     }
+  } else if (updates.status === 'pending' || updates.status === 'overdue' || updates.status === 'partially_paid') {
+    updateData.paid_date = null;
   }
 
   const { data, error } = await supabaseAdmin

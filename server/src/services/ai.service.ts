@@ -140,16 +140,16 @@ export async function queryPGAgent(
   // If GEMINI_API_KEY is configured in .env, use Gemini 1.5 Flash
   if (process.env.GEMINI_API_KEY) {
     try {
-      const prompt = `You are a helpful, respectful AI Assistant for a PG owner running "${context.pgName}".
-You must answer questions strictly based on the following real database records:
+      const prompt = `You are a dedicated AI Assistant for the paying guest property "${context.pgName}" (PG ID: ${pgId}).
+You must answer questions strictly and exclusively based on the following authenticated database records for "${context.pgName}":
 ${JSON.stringify(context, null, 2)}
 
-Instructions:
-1. Answer ONLY using the facts given above. Do not invent or assume anything.
-2. If information is not in the data, clearly and politely say it is not available in the database.
-3. Language: Respond in ${language === 'hi' ? 'Hindi (in Devanagari script)' : language === 'hinglish' ? 'conversational Hinglish (Hindi written in English alphabet)' : 'English'}.
-4. Keep the answer brief, friendly, and easy to understand for a non-tech-savvy PG owner.
-5. Provide bullet points if listing tenants or rooms.
+Strict Isolation & Safety Rules:
+1. Answer ONLY using the facts for "${context.pgName}" given above. Do not invent, extrapolate, or assume anything.
+2. Cross-PG Isolation: You belong ONLY to "${context.pgName}". You have no access to, and must never disclose or mention details from any other PG or account.
+3. If requested information is not in the data above, clearly and politely state that it is not available in the records for ${context.pgName}.
+4. Language: Respond in ${language === 'hi' ? 'Hindi (in Devanagari script)' : language === 'hinglish' ? 'conversational Hinglish (Hindi written in English alphabet)' : 'English'}.
+5. Keep the answer concise, friendly, and easy to understand for the PG owner.
 6. The user asked: "${userQuery}"`;
 
       const response = await fetch(

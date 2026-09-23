@@ -53,51 +53,87 @@ interface MetricCardProps {
   icon?: React.ReactNode;
   trend?: { value: string; isPositive: boolean };
   style?: React.CSSProperties;
+  className?: string;
+  onClick?: () => void;
+  hoverable?: boolean;
 }
 
 /**
  * Dashboard summary card — key metric number prominently displayed.
  * Per UIUX.md: 22-28px bold metric number, consistent grid layout.
  */
-export function MetricCard({ label, value, icon, trend, style }: MetricCardProps) {
+export function MetricCard({
+  label,
+  value,
+  icon,
+  trend,
+  style,
+  className = '',
+  onClick,
+  hoverable = true,
+}: MetricCardProps) {
   return (
-    <Card padding="lg" style={style}>
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
-        <div>
-          <p style={{
-            fontSize: 'var(--font-size-sm)',
-            fontWeight: 500,
-            color: 'var(--color-text-secondary)',
-            marginBottom: '8px',
-          }}>
+    <Card
+      padding="lg"
+      onClick={onClick}
+      hoverable={Boolean(onClick || hoverable)}
+      className={`metric-card-root ${className}`}
+      style={{
+        ...style,
+        cursor: onClick ? 'pointer' : 'default',
+        position: 'relative',
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '8px' }}>
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <p
+            className="metric-card-label"
+            style={{
+              fontSize: 'var(--font-size-sm)',
+              fontWeight: 500,
+              color: 'var(--color-text-secondary)',
+              marginBottom: '6px',
+            }}
+          >
             {label}
           </p>
-          <p style={{
-            fontSize: 'var(--font-size-metric)',
-            fontWeight: 700,
-            color: 'var(--color-text-primary)',
-            fontVariantNumeric: 'tabular-nums',
-            lineHeight: 1.2,
-          }}>
+          <p
+            className="metric-card-value"
+            style={{
+              fontSize: 'var(--font-size-metric)',
+              fontWeight: 700,
+              color: 'var(--color-text-primary)',
+              fontVariantNumeric: 'tabular-nums',
+              lineHeight: 1.2,
+              wordBreak: 'break-word',
+            }}
+          >
             {value}
           </p>
           {trend && (
-            <p style={{
-              fontSize: 'var(--font-size-xs)',
-              color: trend.isPositive ? 'var(--color-success)' : 'var(--color-danger)',
-              marginTop: '4px',
-            }}>
+            <p
+              className="metric-card-trend"
+              style={{
+                fontSize: 'var(--font-size-xs)',
+                color: trend.isPositive ? 'var(--color-success)' : 'var(--color-danger)',
+                marginTop: '4px',
+              }}
+            >
               {trend.isPositive ? '+' : ''}{trend.value}
             </p>
           )}
         </div>
         {icon && (
-          <div style={{
-            padding: '8px',
-            backgroundColor: 'var(--color-primary-light)',
-            borderRadius: 'var(--radius-md)',
-            color: 'var(--color-primary)',
-          }}>
+          <div
+            className="metric-card-icon"
+            style={{
+              padding: '8px',
+              backgroundColor: 'var(--color-primary-light)',
+              borderRadius: 'var(--radius-md)',
+              color: 'var(--color-primary)',
+              flexShrink: 0,
+            }}
+          >
             {icon}
           </div>
         )}

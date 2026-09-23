@@ -417,6 +417,46 @@ input[type="number"] {
    Responsive Forms, Grids & Modals
    ============================================================ */
 
+/* Dashboard Metric Summary Cards Grid — 2 columns side-by-side on mobile */
+.dashboard-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+@media (max-width: 640px) {
+  .dashboard-metrics-grid {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 10px !important;
+    margin-bottom: 18px !important;
+  }
+  .metric-card-root {
+    padding: 12px 10px !important;
+  }
+  .metric-card-label {
+    font-size: 11px !important;
+    margin-bottom: 3px !important;
+    line-height: 1.2 !important;
+  }
+  .metric-card-value {
+    font-size: 17px !important;
+    line-height: 1.15 !important;
+  }
+  .metric-card-trend {
+    font-size: 10px !important;
+    margin-top: 2px !important;
+  }
+  .metric-card-icon {
+    padding: 5px !important;
+    border-radius: 6px !important;
+  }
+  .metric-card-icon svg {
+    width: 15px !important;
+    height: 15px !important;
+  }
+}
+
 .form-grid-2 {
   display: grid;
   grid-template-columns: 1fr 1fr;
