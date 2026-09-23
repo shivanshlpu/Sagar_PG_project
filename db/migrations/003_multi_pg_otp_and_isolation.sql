@@ -2,9 +2,12 @@
 -- Migration 003: Multi-PG Account Isolation & OTP Routing
 -- ============================================================
 
+-- Ensure UUID functions are available
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
 -- 1. Create OTP_REQUESTS table for persistent, PG-scoped OTP audit trail
 CREATE TABLE IF NOT EXISTS otp_requests (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID NOT NULL,
   pg_id UUID NOT NULL REFERENCES pgs(id) ON DELETE CASCADE,
   phone VARCHAR(20) NOT NULL,
@@ -20,6 +23,9 @@ CREATE TABLE IF NOT EXISTS otp_requests (
 CREATE INDEX IF NOT EXISTS idx_otp_requests_user_pg ON otp_requests(user_id, pg_id);
 CREATE INDEX IF NOT EXISTS idx_otp_requests_phone_pg ON otp_requests(phone, pg_id);
 CREATE INDEX IF NOT EXISTS idx_otp_requests_expires_at ON otp_requests(expires_at);
+
+-- Enable Row Level Security (Server-side service-role key bypasses RLS; public anon access is blocked)
+ALTER TABLE otp_requests ENABLE ROW LEVEL SECURITY;
 
 -- 2. Add pg_id to notifications table for full tenant isolation
 ALTER TABLE notifications ADD COLUMN IF NOT EXISTS pg_id UUID REFERENCES pgs(id) ON DELETE CASCADE;
