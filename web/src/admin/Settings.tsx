@@ -1093,6 +1093,27 @@ export default function AdminSettings() {
           <div style={{ marginTop: '24px' }}>
             <Button onClick={handleSaveReminders}>Save Reminder Settings</Button>
           </div>
+
+          {/* Smart Anti-Ban Day Distribution Notice */}
+          <div style={{
+            marginTop: '20px',
+            backgroundColor: 'var(--color-primary-light)',
+            border: '1px solid #A7F3D0',
+            borderRadius: 'var(--radius-md)',
+            padding: '14px 16px',
+            color: '#065F46',
+            fontSize: 'var(--font-size-xs)',
+            lineHeight: 1.6,
+          }}>
+            <div style={{ fontWeight: 600, fontSize: 'var(--font-size-sm)', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              🛡️ Anti-Ban Smart Spacing Active
+            </div>
+            <div>
+              • <strong>Daytime Hours:</strong> Automated reminders are only dispatched between <strong>06:00 AM and 09:00 PM IST</strong>.<br />
+              • <strong>5–10 Min Gap:</strong> Tenant messages are spaced out with a <strong>5 to 10 minute gap</strong> across the day rather than blasted at once.<br />
+              • <strong>Once Per Day:</strong> Each resident is strictly limited to at most 1 reminder per day to ensure clean, compliant WhatsApp messaging.
+            </div>
+          </div>
         </Card>
       )}
 

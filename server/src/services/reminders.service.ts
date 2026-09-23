@@ -12,12 +12,36 @@ import { formatDateDMY, formatMonthMY } from '../utils/date';
  *  2. Staggered dispatch across tenants (2–5 seconds interval between users).
  *  3. Rate-limited message sending (max 3 messages/second via WhatsApp queue).
  */
+/**
+ * Helper to get current Indian Standard Time (IST) hour (0 - 23)
+ */
+function getISTHour(): number {
+  const now = new Date();
+  const istStr = now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' });
+  return new Date(istStr).getHours();
+}
+
+/**
+ * Check for overdue or due rent records and dispatch daily reminders via WhatsApp and in-app.
+ * Strictly enforces:
+ *  1. Active Daytime Window (06:00 AM to 09:00 PM IST) — no night time disturbances.
+ *  2. 5 to 10 minutes gap between consecutive tenants across the day.
+ *  3. Exactly once per day per tenant (via Redis / in-memory deduplication).
+ *  4. Simulated typing presence & random jitter.
+ */
 export async function checkAndSendRentReminders(targetPgId?: string): Promise<{
   checked: number;
   sent: number;
   skippedAlreadySent: number;
   skippedNoPhone: number;
 }> {
+  // 1. Daytime Window Check: Only send reminders between 06:00 AM and 09:00 PM (21:00) IST
+  const currentISTHour = getISTHour();
+  if (currentISTHour < 6 || currentISTHour >= 21) {
+    console.log(`[Reminders] Current time (${currentISTHour}:00 IST) is outside active reminder window (06:00 - 21:00). Pausing dispatch until daytime.`);
+    return { checked: 0, sent: 0, skippedAlreadySent: 0, skippedNoPhone: 0 };
+  }
+
   const waStatus = getWhatsAppStatus();
   if (waStatus.status !== 'connected') {
     console.log('[Reminders] WhatsApp is not connected. Skipping automated WhatsApp reminders.');
@@ -60,8 +84,6 @@ export async function checkAndSendRentReminders(targetPgId?: string): Promise<{
     const qrBuffer = paymentQrStr ? decodeBase64Image(paymentQrStr) : null;
 
     // 3. Find pending or overdue rent records
-    // A record is eligible if status is 'pending' or 'overdue' and due_date <= today
-    // OR if today >= rentReminderDay for the current month
     const { data: rentRecords, error: rentError } = await supabaseAdmin
       .from('rent_records')
       .select('*, tenant:tenants(id, user_id, full_name, phone, status), room:rooms(room_number)')
@@ -79,7 +101,6 @@ export async function checkAndSendRentReminders(targetPgId?: string): Promise<{
       const tenant = record.tenant as any;
       if (!tenant || tenant.status !== 'active') return false;
 
-      // Check if due_date is reached or today >= rentReminderDay
       const recordDueDate = record.due_date ? record.due_date.split('T')[0] : '';
       const isDue = recordDueDate ? recordDueDate <= todayStr : currentDay >= rentReminderDay;
       return isDue;
@@ -87,8 +108,9 @@ export async function checkAndSendRentReminders(targetPgId?: string): Promise<{
 
     totalChecked += eligibleRecords.length;
 
-    // 4. Staggered dispatch across tenants
+    // 4. Staggered dispatch across tenants throughout the day (5 to 10 minutes between tenants)
     let staggerIndex = 0;
+    let accumulatedStaggerMs = 0;
 
     for (const record of eligibleRecords) {
       const tenant = record.tenant as any;
@@ -103,16 +125,43 @@ export async function checkAndSendRentReminders(targetPgId?: string): Promise<{
       // Deduplication key: strictly once per day per tenant (DD-MM-YYYY format)
       const todayDMY = formatDateDMY(now);
       const dedupKey = `reminder:rent:${tenant.id}:${todayDMY}`;
-      const isFirstToday = await cache.setIfNotExists(dedupKey, 'sent', 86400); // 24 hours
+      const isFirstToday = await cache.setIfNotExists(dedupKey, 'scheduled', 86400); // 24 hours
 
       if (!isFirstToday) {
         totalSkippedAlreadySent++;
         continue;
       }
 
-      // Anti-Spam Stagger: 4-5 seconds per tenant to ensure messages are never blasted simultaneously
-      const staggerDelayMs = staggerIndex * 4000;
+      // Anti-Spam Distribution: Spread reminders across the day with a 5 to 10 minute gap between tenants
+      // First tenant sends in 30 seconds; subsequent tenants are spaced by 5-10 minutes each
+      let staggerDelayMs = 0;
+      if (staggerIndex > 0) {
+        // Base 5 minutes (300,000 ms) + random jitter between 0 and 5 minutes (up to 300,000 ms)
+        // Gives ~5 to 10 minutes between consecutive tenants
+        const randomGapMs = 300_000 + Math.floor(Math.random() * 300_000);
+        staggerDelayMs = accumulatedStaggerMs + randomGapMs;
+        accumulatedStaggerMs = staggerDelayMs;
+      } else {
+        staggerDelayMs = 30_000; // First tenant starts in 30 seconds
+        accumulatedStaggerMs = 30_000;
+      }
       staggerIndex++;
+
+      // Check if scheduled time exceeds 21:00 (9:00 PM IST) tonight
+      const scheduledDate = new Date(Date.now() + staggerDelayMs);
+      const scheduledISTHour = new Date(scheduledDate.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' })).getHours();
+      if (scheduledISTHour >= 21 || scheduledISTHour < 6) {
+        console.log(`[Reminders] Tenant ${tenant.full_name} would be sent outside daytime hours (~${scheduledISTHour}:00 IST). Postponing.`);
+        await cache.del(dedupKey);
+        continue;
+      }
+
+      const scheduledTimeStr = scheduledDate.toLocaleTimeString('en-IN', {
+        timeZone: 'Asia/Kolkata',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+      console.log(`[Reminders] Staggered reminder for ${tenant.full_name}: queued for dispatch at ~${scheduledTimeStr} IST (in ${Math.round(staggerDelayMs / 60000)} mins)`);
 
       const formattedAmount = (record.total_due_paise / 100).toLocaleString('en-IN');
       const dueDateFormatted = formatDateDMY(record.due_date);
@@ -153,6 +202,9 @@ export async function checkAndSendRentReminders(targetPgId?: string): Promise<{
             await sendWhatsAppMessage(tenantPhone, reminderMessage, { imageBuffer: qrBuffer });
             console.log(`[Reminders] WhatsApp reminder sent to ${tenant.full_name} (${tenantPhone}) for ${monthFormatted} (hasQR: ${Boolean(qrBuffer)})`);
           }
+
+          // Mark as sent in deduplication cache
+          await cache.setWithExpiry(dedupKey, 'sent', 86400);
 
           // In-app notification for the tenant
           if (tenant.user_id) {
