@@ -6,7 +6,8 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "test:isolation": "tsx src/scripts/test-multi-pg-isolation.ts"
+    "test:isolation": "tsx src/scripts/test-multi-pg-isolation.ts",
+    "test:tenant-isolation": "tsx src/scripts/test-multi-pg-tenant-isolation.ts"
   },
   "dependencies": {
     "@supabase/server": "^1.7.0",

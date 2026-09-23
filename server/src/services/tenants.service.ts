@@ -840,7 +840,8 @@ async function ensureDocumentsBucket() {
   await supabaseAdmin
     .from('beds')
     .update({ status: 'occupied', tenant_id: tenantId })
-    .eq('id', onboardingData.bed_id);
+    .eq('id', onboardingData.bed_id)
+    .eq('pg_id', pgId);
 
   const newOccupiedCount = Math.min((room.occupied_beds || 0) + 1, room.total_beds);
   await supabaseAdmin
@@ -849,7 +850,8 @@ async function ensureDocumentsBucket() {
       occupied_beds: newOccupiedCount,
       status: newOccupiedCount >= room.total_beds ? 'occupied' : 'available',
     })
-    .eq('id', onboardingData.room_id);
+    .eq('id', onboardingData.room_id)
+    .eq('pg_id', pgId);
 
   // 8. Update Tenant Profile
   const metadata = {

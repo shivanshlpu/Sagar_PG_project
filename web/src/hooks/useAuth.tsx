@@ -14,6 +14,7 @@ export interface AuthUser {
 export interface PGProfile {
   id: string;
   name: string;
+  code?: string | null;
   phone?: string | null;
   email?: string | null;
   address?: string | null;
@@ -34,7 +35,16 @@ interface AuthContextType {
   pgName?: string;
   isLoading: boolean;
   login: (email: string, password: string) => Promise<{ success: boolean; error?: string; user?: AuthUser }>;
-  register: (data: { email: string; password: string; role: string; full_name: string; phone?: string; pg_name?: string }) => Promise<{ success: boolean; error?: string }>;
+  register: (data: {
+    email: string;
+    password: string;
+    role: string;
+    full_name: string;
+    phone?: string;
+    pg_name?: string;
+    pg_code?: string;
+    pg_id?: string;
+  }) => Promise<{ success: boolean; error?: string }>;
   refreshPG: () => Promise<void>;
   logout: () => void;
 }
@@ -160,7 +170,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return { success: false, error: res.error || 'Login failed' };
   };
 
-  const register = async (data: { email: string; password: string; role: string; full_name: string; phone?: string; pg_name?: string }) => {
+  const register = async (data: {
+    email: string;
+    password: string;
+    role: string;
+    full_name: string;
+    phone?: string;
+    pg_name?: string;
+    pg_code?: string;
+    pg_id?: string;
+  }) => {
     const res = await apiPost<{ user: AuthUser; tokens: { accessToken: string; refreshToken: string } }>('/auth/register', data);
     if (res.success && res.data) {
       setTokens(res.data.tokens.accessToken, res.data.tokens.refreshToken);

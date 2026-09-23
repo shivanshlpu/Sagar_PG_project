@@ -22,6 +22,19 @@ router.post('/record', authorize('admin'), async (req: Request, res: Response) =
       return;
     }
 
+    // Verify tenant belongs to admin's PG
+    const { data: tenantRecord, error: tenantErr } = await supabaseAdmin
+      .from('tenants')
+      .select('id')
+      .eq('id', tenant_id)
+      .eq('pg_id', req.user!.pgId)
+      .maybeSingle();
+
+    if (tenantErr || !tenantRecord) {
+      res.status(403).json({ success: false, error: '[Tenant Isolation Violation] Tenant not found in your PG property.' });
+      return;
+    }
+
     const noteParts = [];
     if (utr_id) noteParts.push(`UTR: ${utr_id}`);
     if (notes) noteParts.push(notes);
@@ -77,7 +90,8 @@ router.post('/record', authorize('admin'), async (req: Request, res: Response) =
         await supabaseAdmin
           .from('payments')
           .update({ rent_record_id: pendingRent.id })
-          .eq('id', payment.id);
+          .eq('id', payment.id)
+          .eq('pg_id', req.user!.pgId);
       }
     }
 

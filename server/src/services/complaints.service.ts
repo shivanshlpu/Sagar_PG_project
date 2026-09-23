@@ -1,5 +1,6 @@
 import { supabaseAdmin } from '../config/supabase';
 import { logAudit } from './auditLog.service';
+import { createNotification } from './notifications.service';
 
 export async function listComplaints(
   pgId: string,
@@ -118,13 +119,15 @@ export async function updateComplaint(
 
   // Notify tenant of status change
   if (updates.status) {
-    await supabaseAdmin.from('notifications').insert({
-      user_id: data.tenant_id,
+    await createNotification({
+      userId: data.tenant_id,
+      pgId,
       title: 'Complaint Updated',
       message: `Your complaint "${data.title}" has been updated to: ${updates.status}`,
       type: 'complaint_update',
-      is_read: false,
       metadata: { complaint_id: id, new_status: updates.status },
+    }).catch((notifErr) => {
+      console.warn('[complaints.service] Failed to send notification:', notifErr.message);
     });
   }
 

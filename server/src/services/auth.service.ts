@@ -22,14 +22,77 @@ export async function register(
   role: 'admin' | 'tenant',
   fullName: string,
   phone?: string,
-  pgName?: string
+  pgName?: string,
+  pgCode?: string,
+  pgIdParam?: string
 ) {
-  // Create user in Supabase Auth
+  let pgId: string | undefined;
+  let resolvedPgName: string | undefined;
+  let adminId: string | undefined;
+
+  // 1. Strict Server-Side PG Resolution for Tenants (Zero Default Fallback)
+  if (role === 'tenant') {
+    const cleanCode = pgCode?.trim();
+    const cleanId = pgIdParam?.trim();
+
+    if (!cleanCode && !cleanId) {
+      throw new Error('Please select a valid PG property or provide a PG Code to register.');
+    }
+
+    let targetPg: any = null;
+    let pgLookupErr: any = null;
+
+    try {
+      let pgQuery = supabaseAdmin.from('pgs').select('id, name, code, status');
+      if (cleanId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(cleanId)) {
+        pgQuery = pgQuery.eq('id', cleanId);
+      } else if (cleanCode) {
+        pgQuery = pgQuery.ilike('code', cleanCode);
+      } else {
+        throw new Error('Invalid PG identifier provided.');
+      }
+      const res = await pgQuery.maybeSingle();
+      targetPg = res.data;
+      pgLookupErr = res.error;
+    } catch (e: any) {
+      pgLookupErr = e;
+    }
+
+    // Fallback if 'code' column does not exist yet in schema cache
+    if (pgLookupErr && (pgLookupErr.message?.toLowerCase().includes('code') || pgLookupErr.code === '42703' || pgLookupErr.code === 'PGRST204')) {
+      if (cleanId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(cleanId)) {
+        const { data: fbData } = await supabaseAdmin.from('pgs').select('id, name').eq('id', cleanId).maybeSingle();
+        targetPg = fbData;
+        pgLookupErr = null;
+      } else if (cleanCode) {
+        // Try matching UUID prefix or exact ID
+        const { data: allPgs } = await supabaseAdmin.from('pgs').select('id, name');
+        const matched = (allPgs || []).find(p => p.id.toLowerCase().startsWith(cleanCode.toLowerCase()));
+        if (matched) {
+          targetPg = matched;
+          pgLookupErr = null;
+        }
+      }
+    }
+
+    if (pgLookupErr || !targetPg) {
+      throw new Error(`PG property not found for code "${cleanCode || cleanId}". Please verify the code with your PG management.`);
+    }
+
+    if (targetPg.status === 'inactive') {
+      throw new Error(`The PG "${targetPg.name}" is currently inactive and not accepting new registrations.`);
+    }
+
+    pgId = targetPg.id;
+    resolvedPgName = targetPg.name;
+  }
+
+  // 2. Create user in Supabase Auth (with pg_id in metadata)
   const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
     email,
     password,
-    email_confirm: true, // Auto-confirm for now
-    user_metadata: { role, full_name: fullName },
+    email_confirm: true,
+    user_metadata: { role, full_name: fullName, pg_id: pgId || null },
   });
 
   if (authError) {
@@ -37,12 +100,9 @@ export async function register(
   }
 
   const userId = authData.user.id;
-  let adminId: string | undefined;
-  let pgId: string | undefined;
-  let resolvedPgName: string | undefined;
 
   if (role === 'admin') {
-    // 1. Insert into admins table
+    // 3A. Admin Onboarding
     const { data: adminRecord, error: adminErr } = await supabaseAdmin
       .from('admins')
       .insert({
@@ -57,24 +117,52 @@ export async function register(
     if (adminErr) throw new Error(adminErr.message);
     adminId = adminRecord.id;
 
-    // 2. Create the PG property owned by this admin
+    // Generate human-friendly, unique PG code (e.g. SAG-4821)
     resolvedPgName = pgName?.trim() || `${fullName}'s PG`;
-    const { data: pgRecord, error: pgErr } = await supabaseAdmin
+    const cleanPrefix = (resolvedPgName)
+      .replace(/[^a-zA-Z0-9]/g, '')
+      .toUpperCase()
+      .slice(0, 3) || 'PG';
+    const randSuffix = Math.floor(1000 + Math.random() * 9000);
+    const generatedCode = `${cleanPrefix}-${randSuffix}`;
+
+    let pgRecord: any = null;
+    const pgPayload: any = {
+      owner_id: adminId,
+      name: resolvedPgName,
+      phone: phone || null,
+      email,
+    };
+
+    const { data: createdWithCode, error: pgErrWithCode } = await supabaseAdmin
       .from('pgs')
       .insert({
-        owner_id: adminId,
-        name: resolvedPgName,
-        phone: phone || null,
-        email,
+        ...pgPayload,
+        code: generatedCode,
+        status: 'active',
       })
-      .select('id, name')
+      .select('id, name, code')
       .single();
 
-    if (pgErr) throw new Error(pgErr.message);
+    if (pgErrWithCode && (pgErrWithCode.message?.toLowerCase().includes('code') || pgErrWithCode.code === '42703' || pgErrWithCode.code === 'PGRST204')) {
+      // Graceful fallback before migration 004 is applied to database
+      const { data: createdFallback, error: pgErrFallback } = await supabaseAdmin
+        .from('pgs')
+        .insert(pgPayload)
+        .select('id, name')
+        .single();
+      if (pgErrFallback) throw new Error(pgErrFallback.message);
+      pgRecord = { ...createdFallback, code: createdFallback.id.substring(0, 8).toUpperCase() };
+    } else if (pgErrWithCode) {
+      throw new Error(pgErrWithCode.message);
+    } else {
+      pgRecord = createdWithCode;
+    }
+
     pgId = pgRecord.id;
     resolvedPgName = pgRecord.name;
 
-    // 3. Initialize default PG settings (Wi-Fi and reminders) for this new PG
+    // Initialize default PG settings (Wi-Fi and reminders) for this new PG
     await supabaseAdmin.from('property_settings').insert({
       pg_id: pgId,
       wifi_networks: [
@@ -89,20 +177,7 @@ export async function register(
       notice_period_days: 30,
     });
   } else {
-    // Look up default/first PG if registering as tenant directly
-    const { data: defaultPg } = await supabaseAdmin
-      .from('pgs')
-      .select('id, name')
-      .order('created_at', { ascending: true })
-      .limit(1)
-      .single();
-
-    if (defaultPg) {
-      pgId = defaultPg.id;
-      resolvedPgName = defaultPg.name;
-    }
-
-    // Insert into tenants table with pending status
+    // 3B. Tenant Onboarding: Insert into tenants table bound strictly to resolved pgId
     const { data: tenantRecord, error: tenantErr } = await supabaseAdmin
       .from('tenants')
       .insert({
@@ -112,7 +187,7 @@ export async function register(
         phone: phone || '',
         status: 'pending',
         security_deposit_paise: 0,
-        pg_id: pgId || null,
+        pg_id: pgId!,
       })
       .select('id, pg_id')
       .single();
@@ -120,36 +195,37 @@ export async function register(
     if (tenantErr) throw new Error(tenantErr.message);
     pgId = tenantRecord.pg_id;
 
-    // Notify PG Admin about new tenant registration
-    if (pgId) {
-      (async () => {
-        try {
-          const { data: pgData } = await supabaseAdmin
-            .from('pgs')
-            .select('name, owner:admins!owner_id(user_id, phone, full_name)')
-            .eq('id', pgId)
-            .single();
+    // Notify ONLY this PG's Owner/Admin
+    (async () => {
+      try {
+        const { data: pgData } = await supabaseAdmin
+          .from('pgs')
+          .select('name, owner:admins!owner_id(user_id, phone, full_name)')
+          .eq('id', pgId!)
+          .single();
 
-          const ownerUser = (pgData?.owner as any);
-          if (ownerUser?.user_id) {
-            await createNotification({
-              userId: ownerUser.user_id,
-              title: 'New Tenant Registered',
-              message: `${fullName} (${phone || email}) has registered and is pending onboarding.`,
-              type: 'tenant_registered',
-              metadata: { tenantId: tenantRecord.id, email, phone },
+        const ownerUser = (pgData?.owner as any);
+        if (ownerUser?.user_id) {
+          await createNotification({
+            userId: ownerUser.user_id,
+            pgId: pgId!,
+            title: 'New Tenant Registered',
+            message: `${fullName} (${phone || email}) has registered for ${resolvedPgName} and is pending onboarding.`,
+            type: 'tenant_registered',
+            metadata: { tenantId: tenantRecord.id, email, phone, pgId },
+          });
+
+          if (ownerUser.phone) {
+            const alertMsg = `📢 *New Tenant Registration — ${resolvedPgName}*\n\nName: *${fullName}*\nPhone: *${phone || 'N/A'}*\nEmail: *${email}*\n\nPlease review and approve in your Admin Portal.`;
+            await sendWhatsAppMessage(ownerUser.phone, alertMsg, { pgId: pgId!, purpose: 'TENANT_REGISTRATION_ALERT' }).catch((waErr) => {
+              console.warn(`[Notification] WhatsApp alert failed for admin:`, waErr.message);
             });
-
-            if (ownerUser.phone) {
-              const alertMsg = `📢 *New Tenant Registration — Sagar PG*\n\nName: *${fullName}*\nPhone: *${phone || 'N/A'}*\nEmail: *${email}*\n\nPlease review in the Admin Portal.`;
-              await sendWhatsAppMessage(ownerUser.phone, alertMsg, { pgId });
-            }
           }
-        } catch (e: any) {
-          console.warn('[Notification] Failed to alert admin of new tenant:', e.message);
         }
-      })();
-    }
+      } catch (e: any) {
+        console.warn('[Notification] Failed to alert admin of new tenant:', e.message);
+      }
+    })();
   }
 
   // Get the tenant record ID if role is tenant
@@ -607,4 +683,112 @@ export async function changePassword(userId: string, currentPassword: string, ne
   if (updateError) throw new Error('Failed to update password');
   return { success: true };
 }
+
+/**
+ * Public discovery of active PGs (for tenant registration dropdown).
+ * Returns only safe, non-sensitive public property details.
+ */
+export async function listPublicActivePGs() {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('pgs')
+      .select('id, name, code, city, address, phone')
+      .or('status.eq.active,status.is.null')
+      .order('name', { ascending: true });
+
+    if (error && (error.message?.toLowerCase().includes('code') || error.code === '42703' || error.code === 'PGRST204')) {
+      const { data: fallbackData } = await supabaseAdmin
+        .from('pgs')
+        .select('id, name, city, address, phone')
+        .order('name', { ascending: true });
+
+      return (fallbackData || []).map((p) => ({
+        ...p,
+        code: p.id.substring(0, 8).toUpperCase(),
+      }));
+    }
+
+    if (error) {
+      console.warn('[listPublicActivePGs] Error fetching public PGs:', error.message);
+      return [];
+    }
+    return (data || []).map(p => ({
+      ...p,
+      code: p.code || p.id.substring(0, 8).toUpperCase(),
+    }));
+  } catch (err) {
+    console.warn('[listPublicActivePGs] Exception:', err);
+    return [];
+  }
+}
+
+/**
+ * Live validation of PG Code or ID for tenant registration badge.
+ */
+export async function getPublicPGByCode(codeOrId: string) {
+  if (!codeOrId || typeof codeOrId !== 'string') {
+    throw new Error('Invalid PG identifier');
+  }
+
+  const clean = codeOrId.trim();
+
+  try {
+    let query = supabaseAdmin.from('pgs').select('id, name, code, city, address, phone, status');
+
+    if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(clean)) {
+      query = query.eq('id', clean);
+    } else {
+      query = query.ilike('code', clean);
+    }
+
+    const { data, error } = await query.maybeSingle();
+
+    if (!error && data) {
+      return {
+        id: data.id,
+        name: data.name,
+        code: data.code || data.id.substring(0, 8).toUpperCase(),
+        city: data.city,
+        address: data.address,
+        status: data.status || 'active',
+      };
+    }
+
+    if (error && (error.message?.toLowerCase().includes('code') || error.code === '42703' || error.code === 'PGRST204')) {
+      let fbQuery = supabaseAdmin.from('pgs').select('id, name, city, address, phone');
+      if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(clean)) {
+        fbQuery = fbQuery.eq('id', clean);
+      } else {
+        const { data: allPgs } = await supabaseAdmin.from('pgs').select('id, name, city, address, phone');
+        const matched = (allPgs || []).find(p => p.id.toLowerCase().startsWith(clean.toLowerCase()) || p.name.toLowerCase().includes(clean.toLowerCase()));
+        if (matched) {
+          return {
+            id: matched.id,
+            name: matched.name,
+            code: matched.id.substring(0, 8).toUpperCase(),
+            city: matched.city,
+            address: matched.address,
+            status: 'active',
+          };
+        }
+      }
+      const { data: fbData } = await fbQuery.maybeSingle();
+      if (fbData) {
+        return {
+          id: fbData.id,
+          name: fbData.name,
+          code: fbData.id.substring(0, 8).toUpperCase(),
+          city: fbData.city,
+          address: fbData.address,
+          status: 'active',
+        };
+      }
+    }
+  } catch (err: any) {
+    throw err;
+  }
+
+  throw new Error(`PG property not found for code "${clean}". Please verify with your PG management.`);
+}
+
 

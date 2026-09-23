@@ -7,7 +7,8 @@ import { useToast } from '../components/ui/Toast';
 import { apiGet, apiPost, apiPatch, apiDelete } from '../lib/api';
 import { formatDate } from '../lib/date';
 import { ResponsiveTable, type Column } from '../components/common/ResponsiveTable';
-import { Plus, Pencil, Trash2, Link2, CheckCircle2, User, Phone, ShieldCheck, Bed, DollarSign, ArrowRight, ArrowLeft, Eye, ExternalLink, FileText } from 'lucide-react';
+import { Plus, Pencil, Trash2, Link2, CheckCircle2, User, Phone, ShieldCheck, Bed, DollarSign, ArrowRight, ArrowLeft, Eye, ExternalLink, FileText, Copy } from 'lucide-react';
+import { useAuth } from '../hooks/useAuth';
 
 interface BedOption {
   id: string;
@@ -89,6 +90,7 @@ export default function AdminTenants() {
   const [statusFilter, setStatusFilter] = React.useState('');
   const [isSubmitting, setIsSubmitting] = React.useState(false);
   const { showToast } = useToast();
+  const { pg } = useAuth();
 
   const { register, handleSubmit, watch, reset, setValue, formState: { errors } } = useForm<WizardFormData>({
     resolver: zodResolver(wizardSchema),
@@ -335,12 +337,42 @@ export default function AdminTenants() {
     <div className="page-container">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', flexWrap: 'wrap', gap: '12px' }}>
         <div>
-          <h1 className="page-title" style={{ marginBottom: 0 }}>Tenants Directory</h1>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <h1 className="page-title" style={{ marginBottom: 0 }}>Tenants Directory</h1>
+            {pg?.code && (
+              <span style={{
+                fontSize: '12px',
+                fontWeight: 700,
+                letterSpacing: '0.05em',
+                backgroundColor: '#eff6ff',
+                border: '1px solid #bfdbfe',
+                color: '#1d4ed8',
+                padding: '2px 8px',
+                borderRadius: '6px'
+              }}>
+                PG Code: {pg.code}
+              </span>
+            )}
+          </div>
           <p style={{ color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-sm)', marginTop: '4px' }}>
             Manage resident onboarding, rooms, contact details, and deposits.
           </p>
         </div>
-        <div style={{ display: 'flex', gap: '8px' }}>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+          {pg?.code && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                const link = `${window.location.origin}/register?pg=${encodeURIComponent(pg.code || '')}`;
+                navigator.clipboard.writeText(link);
+                showToast(`Copied Tenant Self-Registration Link! (Code: ${pg.code})`);
+              }}
+              style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+            >
+              <Copy size={14} /> Copy Registration Link
+            </Button>
+          )}
           <Button variant="secondary" onClick={generateRegLink}><Link2 size={16} /> Invite Link</Button>
           <Button onClick={openCreate}><Plus size={16} /> Onboard Tenant</Button>
         </div>

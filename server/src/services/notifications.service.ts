@@ -1,10 +1,14 @@
 import { supabaseAdmin } from '../config/supabase';
 
-export async function listNotifications(userId: string, filters?: { unreadOnly?: boolean }) {
+export async function listNotifications(userId: string, filters?: { unreadOnly?: boolean; pgId?: string }) {
   let query = supabaseAdmin
     .from('notifications')
     .select('*')
     .eq('user_id', userId);
+
+  if (filters?.pgId) {
+    query = query.eq('pg_id', filters.pgId);
+  }
 
   if (filters?.unreadOnly) {
     query = query.eq('is_read', false);
@@ -29,6 +33,7 @@ export async function markAsRead(id: string, userId: string) {
 
 export async function createNotification(params: {
   userId: string;
+  pgId?: string;
   title: string;
   message: string;
   type: string;
@@ -38,6 +43,7 @@ export async function createNotification(params: {
     .from('notifications')
     .insert({
       user_id: params.userId,
+      pg_id: params.pgId || null,
       title: params.title,
       message: params.message,
       type: params.type,

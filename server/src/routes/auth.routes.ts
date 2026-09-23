@@ -14,11 +14,31 @@ import {
 
 const router = Router();
 
+// GET /auth/pgs [public, rate-limited] — List active PGs for tenant registration
+router.get('/pgs', authLimiter, async (_req: Request, res: Response) => {
+  try {
+    const data = await authService.listPublicActivePGs();
+    res.json({ success: true, data });
+  } catch (err) {
+    res.status(400).json({ success: false, error: (err as Error).message });
+  }
+});
+
+// GET /auth/pg-info/:code [public, rate-limited] — Live verification of PG code/id
+router.get('/pg-info/:code', authLimiter, async (req: Request, res: Response) => {
+  try {
+    const data = await authService.getPublicPGByCode(req.params.code);
+    res.json({ success: true, data });
+  } catch (err) {
+    res.status(404).json({ success: false, error: (err as Error).message });
+  }
+});
+
 // POST /auth/register [public]
 router.post('/register', authLimiter, validate(registerSchema), async (req: Request, res: Response) => {
   try {
-    const { email, password, role, full_name, phone, pg_name } = req.body;
-    const result = await authService.register(email, password, role, full_name, phone, pg_name);
+    const { email, password, role, full_name, phone, pg_name, pg_code, pg_id } = req.body;
+    const result = await authService.register(email, password, role, full_name, phone, pg_name, pg_code, pg_id);
     res.status(201).json({ success: true, data: result });
   } catch (err) {
     res.status(400).json({ success: false, error: (err as Error).message });

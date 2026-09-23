@@ -23,12 +23,17 @@ export async function listAllAssets(
   return data;
 }
 
-export async function listAssets(roomId: string) {
-  const { data, error } = await supabaseAdmin
+export async function listAssets(roomId: string, pgId?: string) {
+  let query = supabaseAdmin
     .from('assets')
     .select('*')
-    .eq('room_id', roomId)
-    .order('name');
+    .eq('room_id', roomId);
+
+  if (pgId) {
+    query = query.eq('pg_id', pgId);
+  }
+
+  const { data, error } = await query.order('name');
   if (error) throw new Error(error.message);
   return data;
 }

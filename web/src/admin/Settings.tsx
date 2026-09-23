@@ -35,9 +35,11 @@ import {
   Lock,
   Landmark,
   Upload,
+  Building2,
 } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 import { useLanguage } from '../context/LanguageContext';
+import { useAuth } from '../hooks/useAuth';
 
 interface WifiNetwork {
   id: string;
@@ -78,6 +80,7 @@ export default function AdminSettings() {
   }, [setSearchParams]);
 
   const { showToast } = useToast();
+  const { pg } = useAuth();
 
   // --- Wi-Fi State ---
   const [networks, setNetworks] = React.useState<WifiNetwork[]>([]);
@@ -559,12 +562,99 @@ export default function AdminSettings() {
   return (
     <div className="page-container" style={{ maxWidth: '1080px', margin: '0 auto' }}>
       {/* Header */}
-      <div style={{ marginBottom: '28px' }}>
+      <div style={{ marginBottom: '24px' }}>
         <h1 className="page-title" style={{ marginBottom: '6px' }}>Settings & Integrations</h1>
-        <p style={{ color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-base)' }}>
+        <p style={{ color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-base)', margin: 0 }}>
           Manage multi-floor Wi-Fi networks, WhatsApp bot automation, and automated reminders.
         </p>
       </div>
+
+      {/* Property Code & Tenant Registration Link */}
+      {pg && (
+        <div style={{
+          marginBottom: '24px',
+          padding: '16px 20px',
+          borderRadius: 'var(--radius-lg)',
+          backgroundColor: 'var(--color-bg-surface)',
+          border: '1px solid var(--color-border)',
+          display: 'flex',
+          flexWrap: 'wrap',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: '16px',
+          boxShadow: 'var(--shadow-sm)',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+            <div style={{
+              width: '42px',
+              height: '42px',
+              borderRadius: '10px',
+              backgroundColor: '#eff6ff',
+              color: 'var(--color-primary)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexShrink: 0
+            }}>
+              <Building2 size={22} />
+            </div>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <h2 style={{ fontSize: 'var(--font-size-md)', fontWeight: 700, margin: 0 }}>
+                  {pg.name}
+                </h2>
+                {pg.code && (
+                  <span style={{
+                    fontSize: '12px',
+                    fontWeight: 700,
+                    letterSpacing: '0.05em',
+                    backgroundColor: '#e0e7ff',
+                    color: '#3730a3',
+                    padding: '2px 8px',
+                    borderRadius: '6px'
+                  }}>
+                    {pg.code}
+                  </span>
+                )}
+              </div>
+              <p style={{ margin: '3px 0 0 0', fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
+                Share your property code or self-registration link so tenants are automatically onboarded into your PG.
+              </p>
+            </div>
+          </div>
+
+          {pg.code && (
+            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  navigator.clipboard.writeText(pg.code || '');
+                  showToast(`Copied PG Code: ${pg.code}`);
+                }}
+                style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+              >
+                <Copy size={14} />
+                Copy Code ({pg.code})
+              </Button>
+
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => {
+                  const link = `${window.location.origin}/register?pg=${encodeURIComponent(pg.code || '')}`;
+                  navigator.clipboard.writeText(link);
+                  showToast('Registration link copied to clipboard!');
+                }}
+                style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+              >
+                <Send size={14} />
+                Copy Registration Link
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Tabs */}
       <div style={tabContainerStyle}>

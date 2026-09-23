@@ -63,6 +63,36 @@ export async function submitPayment(
   },
   screenshotPath?: string | null
 ) {
+  // 1. Cross-Tenant Integrity Check: Verify linked rent record belongs strictly to this tenant and PG
+  if (paymentData.rent_record_id) {
+    const { data: rentRecord, error: rentErr } = await supabaseAdmin
+      .from('rent_records')
+      .select('id')
+      .eq('id', paymentData.rent_record_id)
+      .eq('pg_id', pgId)
+      .eq('tenant_id', tenantId)
+      .maybeSingle();
+
+    if (rentErr || !rentRecord) {
+      throw new Error('[Tenant Isolation Violation] The selected rent record does not belong to your account or PG property.');
+    }
+  }
+
+  // 2. Cross-Tenant Integrity Check: Verify linked electricity bill belongs strictly to this tenant and PG
+  if (paymentData.electricity_bill_id) {
+    const { data: elBill, error: elErr } = await supabaseAdmin
+      .from('electricity_bills')
+      .select('id')
+      .eq('id', paymentData.electricity_bill_id)
+      .eq('pg_id', pgId)
+      .eq('tenant_id', tenantId)
+      .maybeSingle();
+
+    if (elErr || !elBill) {
+      throw new Error('[Tenant Isolation Violation] The selected electricity bill does not belong to your account or PG property.');
+    }
+  }
+
   const { utr_id, reference_id, notes, ...rest } = paymentData;
   const utr = (utr_id || reference_id || '').trim();
   let finalNotes = notes?.trim() || null;

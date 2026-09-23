@@ -8,7 +8,19 @@ export const registerSchema = z.object({
   full_name: z.string().min(1, 'Name is required').max(200),
   phone: z.string().min(10, 'Valid phone number required').max(15).nullish().or(z.literal('')),
   pg_name: z.string().max(200).nullish().or(z.literal('')),
-}).strict();
+  pg_code: z.string().max(50).nullish().or(z.literal('')),
+  pg_id: z.string().uuid().nullish().or(z.literal('')),
+}).strict().refine((data) => {
+  if (data.role === 'tenant') {
+    const hasCode = !!(data.pg_code && data.pg_code.trim());
+    const hasId = !!(data.pg_id && data.pg_id.trim());
+    return hasCode || hasId;
+  }
+  return true;
+}, {
+  message: 'Please provide a valid PG Code or select your PG property to register as a tenant.',
+  path: ['pg_code'],
+});
 
 export const loginSchema = z.object({
   email: z.string().email('Valid email required'),

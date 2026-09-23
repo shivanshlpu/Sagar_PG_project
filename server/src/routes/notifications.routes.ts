@@ -12,6 +12,7 @@ router.get('/', async (req: Request, res: Response) => {
   try {
     const data = await notificationsService.listNotifications(req.user!.id, {
       unreadOnly: req.query.unread === 'true',
+      pgId: req.user?.pgId || undefined,
     });
     res.json({ success: true, data });
   } catch (err) {
