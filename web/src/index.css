@@ -904,6 +904,51 @@ input[type="number"] {
   }
 }
 
+/* Rent Tracking Responsive KPI Grid */
+.rent-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 12px;
+  margin-bottom: 20px;
+}
+@media (max-width: 992px) {
+  .rent-kpi-grid {
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+  }
+}
+@media (max-width: 640px) {
+  .rent-kpi-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+    margin-bottom: 16px;
+  }
+  .rent-kpi-card-span2 {
+    grid-column: span 2;
+  }
+}
+
+.rent-kpi-card {
+  padding: 14px 16px;
+  border-radius: var(--radius-lg, 12px);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+@media (max-width: 640px) {
+  .rent-kpi-card {
+    padding: 10px 12px !important;
+  }
+  .rent-kpi-card .kpi-num {
+    font-size: 19px !important;
+  }
+  .rent-kpi-card .kpi-label {
+    font-size: 10px !important;
+  }
+  .rent-kpi-card .kpi-sub {
+    display: none !important;
+  }
+}
+
 
 
 

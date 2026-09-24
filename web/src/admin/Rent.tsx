@@ -130,11 +130,16 @@ export default function AdminRent() {
       if (monthFilter) params.set('month', monthFilter);
       params.set('window', '10');
 
-      const res = await apiGet<{ summary: RentTrackingSummary; data: RentTrackingItem[] }>(`/rent/tracking?${params}`);
-      if (res.success && res.data) {
-        setItems(res.data.data || []);
-        if (res.data.summary) {
-          setSummary(res.data.summary);
+      const res = await apiGet<any>(`/rent/tracking?${params}`);
+      if (res.success) {
+        const trackingItems = Array.isArray(res.data)
+          ? res.data
+          : (res as any).data?.data || [];
+        setItems(trackingItems);
+
+        const summaryData = (res as any).summary || (res as any).data?.summary;
+        if (summaryData) {
+          setSummary(summaryData);
         }
       } else {
         showToast(res.error || 'Failed to load rent tracking', 'error');
@@ -640,139 +645,119 @@ export default function AdminRent() {
       </div>
 
       {/* Executive KPI Overview Cards */}
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))',
-        gap: '12px',
-        marginBottom: '24px',
-      }}>
+      <div className="rent-kpi-grid">
         {/* Card 1: Upcoming */}
         <div
           onClick={() => setStatusFilter(statusFilter === 'UPCOMING' ? 'ALL' : 'UPCOMING')}
+          className="rent-kpi-card"
           style={{
-            padding: '16px',
-            borderRadius: 'var(--radius-lg, 12px)',
             backgroundColor: statusFilter === 'UPCOMING' ? 'rgba(59, 130, 246, 0.08)' : 'var(--color-bg-surface)',
             border: `1.5px solid ${statusFilter === 'UPCOMING' ? 'var(--color-primary)' : 'var(--color-border)'}`,
-            cursor: 'pointer',
-            transition: 'all 0.15s ease',
           }}
         >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-            <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', fontWeight: 600 }}>
-              UPCOMING PAYMENTS
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+            <span className="kpi-label" style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', fontWeight: 600 }}>
+              UPCOMING
             </span>
-            <Clock size={18} style={{ color: '#2563eb' }} />
+            <Clock size={16} style={{ color: '#2563eb' }} />
           </div>
-          <div style={{ fontSize: '26px', fontWeight: 800, color: 'var(--color-text-primary)' }}>
+          <div className="kpi-num" style={{ fontSize: '24px', fontWeight: 800, color: 'var(--color-text-primary)' }}>
             {summary.upcoming_count}
           </div>
-          <p style={{ margin: '4px 0 0', fontSize: '11px', color: 'var(--color-text-muted)' }}>
-            Due within 10-day window
+          <p className="kpi-sub" style={{ margin: '4px 0 0', fontSize: '11px', color: 'var(--color-text-muted)' }}>
+            Due within 10 days
           </p>
         </div>
 
         {/* Card 2: Due Today */}
         <div
           onClick={() => setStatusFilter(statusFilter === 'DUE_TODAY' ? 'ALL' : 'DUE_TODAY')}
+          className="rent-kpi-card"
           style={{
-            padding: '16px',
-            borderRadius: 'var(--radius-lg, 12px)',
             backgroundColor: statusFilter === 'DUE_TODAY' ? 'rgba(245, 158, 11, 0.10)' : 'var(--color-bg-surface)',
             border: `1.5px solid ${statusFilter === 'DUE_TODAY' ? '#d97706' : 'var(--color-border)'}`,
-            cursor: 'pointer',
-            transition: 'all 0.15s ease',
           }}
         >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-            <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', fontWeight: 600 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+            <span className="kpi-label" style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', fontWeight: 600 }}>
               DUE TODAY
             </span>
-            <Bell size={18} style={{ color: '#d97706' }} />
+            <Bell size={16} style={{ color: '#d97706' }} />
           </div>
-          <div style={{ fontSize: '26px', fontWeight: 800, color: '#d97706' }}>
+          <div className="kpi-num" style={{ fontSize: '24px', fontWeight: 800, color: '#d97706' }}>
             {summary.due_today_count}
           </div>
-          <p style={{ margin: '4px 0 0', fontSize: '11px', color: 'var(--color-text-muted)' }}>
-            First reminder scheduled today
+          <p className="kpi-sub" style={{ margin: '4px 0 0', fontSize: '11px', color: 'var(--color-text-muted)' }}>
+            Payment due today
           </p>
         </div>
 
         {/* Card 3: Overdue */}
         <div
           onClick={() => setStatusFilter(statusFilter === 'OVERDUE' ? 'ALL' : 'OVERDUE')}
+          className="rent-kpi-card"
           style={{
-            padding: '16px',
-            borderRadius: 'var(--radius-lg, 12px)',
             backgroundColor: statusFilter === 'OVERDUE' ? 'rgba(239, 68, 68, 0.08)' : 'var(--color-bg-surface)',
             border: `1.5px solid ${statusFilter === 'OVERDUE' ? '#dc2626' : 'var(--color-border)'}`,
-            cursor: 'pointer',
-            transition: 'all 0.15s ease',
           }}
         >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-            <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', fontWeight: 600 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+            <span className="kpi-label" style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', fontWeight: 600 }}>
               OVERDUE
             </span>
-            <AlertTriangle size={18} style={{ color: '#dc2626' }} />
+            <AlertTriangle size={16} style={{ color: '#dc2626' }} />
           </div>
-          <div style={{ fontSize: '26px', fontWeight: 800, color: '#dc2626' }}>
+          <div className="kpi-num" style={{ fontSize: '24px', fontWeight: 800, color: '#dc2626' }}>
             {summary.overdue_count}
           </div>
-          <p style={{ margin: '4px 0 0', fontSize: '11px', color: 'var(--color-text-muted)' }}>
-            Active daily reminder cycle
+          <p className="kpi-sub" style={{ margin: '4px 0 0', fontSize: '11px', color: 'var(--color-text-muted)' }}>
+            Reminder cycle active
           </p>
         </div>
 
         {/* Card 4: Payment Verification Pending */}
         <div
           onClick={() => setStatusFilter(statusFilter === 'PAYMENT_SUBMITTED' ? 'ALL' : 'PAYMENT_SUBMITTED')}
+          className="rent-kpi-card"
           style={{
-            padding: '16px',
-            borderRadius: 'var(--radius-lg, 12px)',
             backgroundColor: statusFilter === 'PAYMENT_SUBMITTED' ? 'rgba(147, 51, 234, 0.08)' : 'var(--color-bg-surface)',
             border: `1.5px solid ${statusFilter === 'PAYMENT_SUBMITTED' ? '#7c3aed' : 'var(--color-border)'}`,
-            cursor: 'pointer',
-            transition: 'all 0.15s ease',
           }}
         >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-            <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', fontWeight: 600 }}>
-              VERIFICATION PENDING
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+            <span className="kpi-label" style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', fontWeight: 600 }}>
+              VERIFY UTR
             </span>
-            <ShieldAlert size={18} style={{ color: '#7c3aed' }} />
+            <ShieldAlert size={16} style={{ color: '#7c3aed' }} />
           </div>
-          <div style={{ fontSize: '26px', fontWeight: 800, color: '#7c3aed' }}>
+          <div className="kpi-num" style={{ fontSize: '24px', fontWeight: 800, color: '#7c3aed' }}>
             {summary.verification_pending_count}
           </div>
-          <p style={{ margin: '4px 0 0', fontSize: '11px', color: 'var(--color-text-muted)' }}>
-            UTR submitted; awaiting admin check
+          <p className="kpi-sub" style={{ margin: '4px 0 0', fontSize: '11px', color: 'var(--color-text-muted)' }}>
+            UTR awaiting check
           </p>
         </div>
 
         {/* Card 5: Paid */}
         <div
           onClick={() => setStatusFilter(statusFilter === 'PAID' ? 'ALL' : 'PAID')}
+          className="rent-kpi-card rent-kpi-card-span2"
           style={{
-            padding: '16px',
-            borderRadius: 'var(--radius-lg, 12px)',
             backgroundColor: statusFilter === 'PAID' ? 'rgba(16, 185, 129, 0.08)' : 'var(--color-bg-surface)',
             border: `1.5px solid ${statusFilter === 'PAID' ? '#059669' : 'var(--color-border)'}`,
-            cursor: 'pointer',
-            transition: 'all 0.15s ease',
           }}
         >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-            <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', fontWeight: 600 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+            <span className="kpi-label" style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', fontWeight: 600 }}>
               PAID & SETTLED
             </span>
-            <CheckCircle size={18} style={{ color: '#059669' }} />
+            <CheckCircle size={16} style={{ color: '#059669' }} />
           </div>
-          <div style={{ fontSize: '26px', fontWeight: 800, color: '#059669' }}>
+          <div className="kpi-num" style={{ fontSize: '24px', fontWeight: 800, color: '#059669' }}>
             {summary.paid_count}
           </div>
-          <p style={{ margin: '4px 0 0', fontSize: '11px', color: 'var(--color-text-muted)' }}>
-            Reminders permanently stopped
+          <p className="kpi-sub" style={{ margin: '4px 0 0', fontSize: '11px', color: 'var(--color-text-muted)' }}>
+            Reminders stopped
           </p>
         </div>
       </div>
@@ -825,8 +810,8 @@ export default function AdminRent() {
         data={filteredItems}
         isLoading={isLoading}
         renderCard={(item: RentTrackingItem) => (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            {/* Card Header: Tenant, Room, Status Countdown */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            {/* Card Header: Resident, Room, Month, Status Badge */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
               <div>
                 <h4 style={{ margin: 0, fontSize: 'var(--font-size-base)', fontWeight: 600, color: 'var(--color-text-primary)' }}>
@@ -835,160 +820,134 @@ export default function AdminRent() {
                 <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', marginTop: '2px' }}>
                   Room {item.room_number} {item.floor !== undefined && item.floor > 0 ? `• Fl ${item.floor}` : ''} • {formatMonth(item.month)}
                 </div>
-                {item.phone && (
-                  <div style={{ fontSize: '11px', color: 'var(--color-text-muted)', marginTop: '1px' }}>
-                    {item.phone}
-                  </div>
-                )}
               </div>
 
-              {/* Status Badge */}
-              {item.status === 'PAID' ? (
-                <span style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '4px',
-                  padding: '3px 8px',
-                  borderRadius: 'var(--radius-sm)',
-                  fontSize: '11px',
-                  fontWeight: 600,
-                  backgroundColor: 'rgba(16, 185, 129, 0.12)',
-                  color: '#059669',
-                }}>
-                  <CheckCircle2 size={12} /> Paid
-                </span>
-              ) : item.status === 'PAYMENT_SUBMITTED' ? (
-                <span style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '4px',
-                  padding: '3px 8px',
-                  borderRadius: 'var(--radius-sm)',
-                  fontSize: '11px',
-                  fontWeight: 600,
-                  backgroundColor: 'rgba(147, 51, 234, 0.12)',
-                  color: '#7c3aed',
-                }}>
-                  <ShieldAlert size={12} /> Verification Pending
-                </span>
-              ) : item.status === 'DUE_TODAY' ? (
-                <span style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '4px',
-                  padding: '3px 8px',
-                  borderRadius: 'var(--radius-sm)',
-                  fontSize: '11px',
-                  fontWeight: 700,
-                  backgroundColor: 'rgba(245, 158, 11, 0.15)',
-                  color: '#d97706',
-                }}>
-                  <Bell size={12} /> Due Today
-                </span>
-              ) : item.status === 'OVERDUE' ? (
-                <span style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '4px',
-                  padding: '3px 8px',
-                  borderRadius: 'var(--radius-sm)',
-                  fontSize: '11px',
-                  fontWeight: 700,
-                  backgroundColor: 'rgba(239, 68, 68, 0.12)',
-                  color: '#dc2626',
-                }}>
-                  <AlertTriangle size={12} /> {item.days_overdue}d overdue
-                </span>
-              ) : (
-                <span style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '4px',
-                  padding: '3px 8px',
-                  borderRadius: 'var(--radius-sm)',
-                  fontSize: '11px',
-                  fontWeight: 500,
-                  backgroundColor: 'rgba(59, 130, 246, 0.10)',
-                  color: '#2563eb',
-                }}>
-                  <Clock size={12} /> In {item.days_remaining}d
-                </span>
-              )}
-            </div>
-
-            {/* Metrics Grid */}
-            <div style={{
-              display: 'grid',
-              gridTemplateColumns: '1fr 1fr',
-              gap: '8px',
-              padding: '12px 14px',
-              backgroundColor: 'var(--color-bg-surface-alt)',
-              borderRadius: 'var(--radius-md)',
-            }}>
-              <div>
-                <span style={{ fontSize: '11px', color: 'var(--color-text-secondary)', display: 'block', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                  Rent Due Date
-                </span>
-                <span style={{ fontSize: 'var(--font-size-sm)', fontWeight: 600, color: 'var(--color-text-primary)' }}>
-                  {item.due_date_formatted || formatDate(item.due_date)}
-                </span>
-                <div style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>
-                  Cycle: {item.move_in_date ? `Day ${new Date(item.move_in_date).getDate()}` : 'Monthly'}
-                </div>
-              </div>
-
-              <div>
-                <span style={{ fontSize: '11px', color: 'var(--color-text-secondary)', display: 'block', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                  Total Obligation
-                </span>
-                <span style={{ fontSize: 'var(--font-size-base)', fontWeight: 700, color: 'var(--color-primary)' }} className="tabular-nums">
-                  {formatCurrency(item.total_due_paise)}
-                </span>
-                <div style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>
-                  Rent: ₹{(item.base_rent_paise / 100).toLocaleString('en-IN')}
-                  {item.electricity_amount_paise > 0 ? ` + Elec ₹${(item.electricity_amount_paise / 100).toLocaleString('en-IN')}` : ''}
-                </div>
-              </div>
-            </div>
-
-            {/* Reminder State Badge */}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
-              <div>
+              {/* Status Badge & Reminder Chip on Top-Right */}
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px' }}>
                 {item.status === 'PAID' ? (
-                  <span style={{ color: 'var(--color-success)', fontWeight: 500 }}>
-                    ✓ Reminders permanently stopped
-                  </span>
-                ) : item.reminder_count > 0 ? (
                   <span style={{
                     display: 'inline-flex',
                     alignItems: 'center',
                     gap: '4px',
-                    padding: '2px 6px',
+                    padding: '2px 7px',
                     borderRadius: 'var(--radius-sm)',
-                    backgroundColor: 'rgba(245, 158, 11, 0.12)',
-                    color: '#b45309',
-                    fontWeight: 600,
                     fontSize: '11px',
+                    fontWeight: 600,
+                    backgroundColor: 'rgba(16, 185, 129, 0.12)',
+                    color: '#059669',
                   }}>
-                    <MessageSquare size={11} /> Reminder #{item.reminder_count} sent
+                    <CheckCircle2 size={12} /> Paid
+                  </span>
+                ) : item.status === 'PAYMENT_SUBMITTED' ? (
+                  <span style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    padding: '2px 7px',
+                    borderRadius: 'var(--radius-sm)',
+                    fontSize: '11px',
+                    fontWeight: 600,
+                    backgroundColor: 'rgba(147, 51, 234, 0.12)',
+                    color: '#7c3aed',
+                  }}>
+                    <ShieldAlert size={12} /> Verify UTR
+                  </span>
+                ) : item.status === 'DUE_TODAY' ? (
+                  <span style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    padding: '2px 7px',
+                    borderRadius: 'var(--radius-sm)',
+                    fontSize: '11px',
+                    fontWeight: 700,
+                    backgroundColor: 'rgba(245, 158, 11, 0.15)',
+                    color: '#d97706',
+                  }}>
+                    <Bell size={12} /> Due Today
+                  </span>
+                ) : item.status === 'OVERDUE' ? (
+                  <span style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    padding: '2px 7px',
+                    borderRadius: 'var(--radius-sm)',
+                    fontSize: '11px',
+                    fontWeight: 700,
+                    backgroundColor: 'rgba(239, 68, 68, 0.12)',
+                    color: '#dc2626',
+                  }}>
+                    <AlertTriangle size={12} /> {item.days_overdue}d overdue
                   </span>
                 ) : (
-                  <span>No reminders sent yet</span>
+                  <span style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    padding: '2px 7px',
+                    borderRadius: 'var(--radius-sm)',
+                    fontSize: '11px',
+                    fontWeight: 500,
+                    backgroundColor: 'rgba(59, 130, 246, 0.10)',
+                    color: '#2563eb',
+                  }}>
+                    <Clock size={12} /> In {item.days_remaining}d
+                  </span>
+                )}
+
+                {item.reminder_count > 0 && item.status !== 'PAID' && (
+                  <span style={{
+                    fontSize: '10px',
+                    fontWeight: 600,
+                    color: '#b45309',
+                    backgroundColor: 'rgba(245, 158, 11, 0.12)',
+                    padding: '1px 5px',
+                    borderRadius: 'var(--radius-sm)',
+                  }}>
+                    Reminder #{item.reminder_count}
+                  </span>
                 )}
               </div>
-
-              {item.payment?.utr_id && (
-                <span style={{ fontSize: '11px', color: '#7c3aed', fontWeight: 600 }}>
-                  UTR: {item.payment.utr_id}
-                </span>
-              )}
             </div>
+
+            {/* Metrics: Clean 3-column side-by-side strip */}
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(3, 1fr)',
+              gap: '6px',
+              padding: '10px 12px',
+              backgroundColor: 'var(--color-bg-surface-alt)',
+              borderRadius: 'var(--radius-md)',
+              fontSize: 'var(--font-size-xs)',
+              textAlign: 'center',
+            }}>
+              <div>
+                <span style={{ fontSize: '10px', color: 'var(--color-text-secondary)', display: 'block' }}>Room Rent</span>
+                <strong style={{ color: 'var(--color-text-primary)' }}>₹{(item.base_rent_paise / 100).toLocaleString('en-IN')}</strong>
+              </div>
+              <div>
+                <span style={{ fontSize: '10px', color: 'var(--color-text-secondary)', display: 'block' }}>Total Due</span>
+                <strong style={{ color: 'var(--color-primary)' }} className="tabular-nums">{formatCurrency(item.total_due_paise)}</strong>
+              </div>
+              <div>
+                <span style={{ fontSize: '10px', color: 'var(--color-text-secondary)', display: 'block' }}>Due Date</span>
+                <strong style={{ color: 'var(--color-text-primary)' }}>{item.due_date_formatted || formatDate(item.due_date)}</strong>
+              </div>
+            </div>
+
+            {/* UTR Note if submitted */}
+            {item.payment?.utr_id && (
+              <div style={{ fontSize: '11px', color: '#7c3aed', fontWeight: 600 }}>
+                Submitted UTR: <span style={{ fontFamily: 'monospace' }}>{item.payment.utr_id}</span>
+              </div>
+            )}
 
             {/* Card Action Buttons */}
             <div style={{
               display: 'flex',
               gap: '8px',
-              paddingTop: '10px',
+              paddingTop: '8px',
               borderTop: '1px solid var(--color-border)',
               justifyContent: 'flex-end',
               alignItems: 'center',

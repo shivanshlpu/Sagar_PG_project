@@ -178,8 +178,6 @@ export default function AdminElectricity() {
     }
   }
 
-  const [expandedCardId, setExpandedCardId] = React.useState<string | null>(null);
-
   const columns: ResponsiveColumn<ElBill>[] = [
     { key: 'month', header: 'Month', render: (r: ElBill) => formatMonth(r.month), sortable: true },
     { key: 'tenant', header: 'Tenant', render: (r: ElBill) => r.tenant?.full_name || '-' },
@@ -227,9 +225,7 @@ export default function AdminElectricity() {
         columns={columns}
         data={bills}
         isLoading={isLoading}
-        renderCard={(bill: ElBill) => {
-          const isExpanded = expandedCardId === bill.id;
-          return (
+        renderCard={(bill: ElBill) => (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               {/* Upfront Header: Tenant, Room, Month, Status */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
@@ -267,65 +263,30 @@ export default function AdminElectricity() {
                 </div>
               </div>
 
-              {/* Expandable Reading Details Below */}
-              <div>
-                <button
-                  type="button"
-                  onClick={() => setExpandedCardId(isExpanded ? null : bill.id)}
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '4px',
-                    fontSize: 'var(--font-size-xs)',
-                    color: 'var(--color-primary)',
-                    background: 'none',
-                    border: 'none',
-                    cursor: 'pointer',
-                    padding: '4px 0',
-                    fontWeight: 600,
-                  }}
-                >
-                  {isExpanded ? 'Hide Reading Breakdown ▲' : 'Show Meter Readings & Rate ▼'}
-                </button>
-
-                {isExpanded && (
-                  <div style={{
-                    marginTop: '8px',
-                    padding: '10px 14px',
-                    backgroundColor: 'var(--color-bg-base)',
-                    borderRadius: 'var(--radius-md)',
-                    border: '1px solid var(--color-border)',
-                    fontSize: 'var(--font-size-xs)',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '6px',
-                  }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                      <span style={{ color: 'var(--color-text-secondary)' }}>Previous Meter Reading:</span>
-                      <strong>{bill.previous_reading}</strong>
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                      <span style={{ color: 'var(--color-text-secondary)' }}>Current Meter Reading:</span>
-                      <strong>{bill.current_reading}</strong>
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                      <span style={{ color: 'var(--color-text-secondary)' }}>Rate per Unit:</span>
-                      <strong>₹{(bill.rate_per_unit_paise / 100).toFixed(2)} / unit</strong>
-                    </div>
-                    <div style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      borderTop: '1px dashed var(--color-border)',
-                      paddingTop: '6px',
-                      marginTop: '2px',
-                      color: 'var(--color-primary)',
-                      fontWeight: 600,
-                    }}>
-                      <span>Formula:</span>
-                      <span>({bill.current_reading} - {bill.previous_reading}) × ₹{(bill.rate_per_unit_paise / 100).toFixed(2)}</span>
-                    </div>
-                  </div>
-                )}
+              {/* Meter Readings & Rate Compact Strip (Eliminating line-type vertical reading) */}
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(3, 1fr)',
+                gap: '6px',
+                padding: '8px 10px',
+                backgroundColor: 'var(--color-bg-base)',
+                borderRadius: 'var(--radius-md)',
+                border: '1px solid var(--color-border)',
+                textAlign: 'center',
+                fontSize: 'var(--font-size-xs)',
+              }}>
+                <div>
+                  <span style={{ fontSize: '10px', color: 'var(--color-text-secondary)', display: 'block' }}>Prev Reading</span>
+                  <strong style={{ color: 'var(--color-text-primary)' }}>{bill.previous_reading}</strong>
+                </div>
+                <div>
+                  <span style={{ fontSize: '10px', color: 'var(--color-text-secondary)', display: 'block' }}>Curr Reading</span>
+                  <strong style={{ color: 'var(--color-text-primary)' }}>{bill.current_reading}</strong>
+                </div>
+                <div>
+                  <span style={{ fontSize: '10px', color: 'var(--color-text-secondary)', display: 'block' }}>Rate / Unit</span>
+                  <strong style={{ color: 'var(--color-text-primary)' }}>₹{(bill.rate_per_unit_paise / 100).toFixed(2)}</strong>
+                </div>
               </div>
 
               {/* Bottom Actions: Edit Bill (if pending) / View Details (if paid) */}
@@ -349,8 +310,7 @@ export default function AdminElectricity() {
                 )}
               </div>
             </div>
-          );
-        }}
+        )}
         emptyState={
           <div style={{ textAlign: 'center', padding: '48px' }}>
             <Zap size={48} style={{ color: 'var(--color-text-muted)', marginBottom: '12px' }} />
