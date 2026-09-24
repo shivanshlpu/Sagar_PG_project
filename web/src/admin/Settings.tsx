@@ -1503,7 +1503,7 @@ export default function AdminSettings() {
                     Disconnect WhatsApp
                   </Button>
                 ) : (
-                  <Button onClick={() => handleConnectWhatsApp(true)} isLoading={waLoading}>
+                  <Button onClick={() => handleConnectWhatsApp(false)} isLoading={waLoading}>
                     <RefreshCw size={15} /> Initialize Connection
                   </Button>
                 )}
@@ -1519,7 +1519,7 @@ export default function AdminSettings() {
                   Connect Your WhatsApp Account
                 </h3>
                 <p style={{ color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-sm)' }}>
-                  Choose either to scan a QR code with your phone or request an 8-character connection pairing code.
+                  Choose either to scan a live QR code with your phone or link directly using an 8-character pairing code.
                 </p>
 
                 {/* Sub-tabs for QR vs Pairing Code */}
@@ -1527,7 +1527,7 @@ export default function AdminSettings() {
                   <button
                     onClick={() => {
                       setConnectionMethod('qr');
-                      if (!waData.qr) handleConnectWhatsApp(true);
+                      if (!waData.qr) handleConnectWhatsApp(false);
                     }}
                     style={connectionMethod === 'qr' ? activePillStyle : inactivePillStyle}
                   >
@@ -1537,7 +1537,7 @@ export default function AdminSettings() {
                     onClick={() => setConnectionMethod('code')}
                     style={connectionMethod === 'code' ? activePillStyle : inactivePillStyle}
                   >
-                    <Radio size={15} /> Option 2: Link with Phone Number (Pairing String)
+                    <Radio size={15} /> Option 2: Link with Phone Number (Pairing Code)
                   </button>
                 </div>
               </div>
@@ -1567,7 +1567,7 @@ export default function AdminSettings() {
                             Click "Generate QR Code" to create a live QR code.
                           </p>
                           <div style={{ display: 'flex', gap: '8px', flexDirection: 'column', width: '100%', padding: '0 16px' }}>
-                            <Button variant="secondary" onClick={() => handleConnectWhatsApp(true)} isLoading={waLoading} style={{ fontSize: 'var(--font-size-xs)', width: '100%' }}>
+                            <Button variant="secondary" onClick={() => handleConnectWhatsApp(false)} isLoading={waLoading} style={{ fontSize: 'var(--font-size-xs)', width: '100%' }}>
                               Generate QR Code
                             </Button>
                             <Button variant="secondary" onClick={handleResetWhatsApp} isLoading={waLoading} style={{ fontSize: 'var(--font-size-xs)', width: '100%', opacity: 0.8 }}>
@@ -1597,6 +1597,20 @@ export default function AdminSettings() {
                       <Button variant="secondary" onClick={handleResetWhatsApp} isLoading={waLoading} style={{ color: 'var(--color-warning)' }}>
                         Reset & Fresh QR
                       </Button>
+                    </div>
+
+                    <div
+                      style={{
+                        marginTop: '14px',
+                        padding: '10px 14px',
+                        backgroundColor: 'var(--color-bg-surface-alt)',
+                        borderRadius: 'var(--radius-md)',
+                        fontSize: 'var(--font-size-xs)',
+                        color: 'var(--color-text-secondary)',
+                        lineHeight: 1.5,
+                      }}
+                    >
+                      💡 <strong>Tip:</strong> If your phone camera has trouble scanning or shows a connection error, switch to <strong>Option 2 (Link with Phone Number)</strong> above for instant linking with a code.
                     </div>
                   </div>
                 </div>

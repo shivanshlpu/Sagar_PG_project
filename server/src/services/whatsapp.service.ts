@@ -2,6 +2,8 @@ import makeWASocket, {
   DisconnectReason,
   useMultiFileAuthState,
   fetchLatestBaileysVersion,
+  fetchLatestWaWebVersion,
+  Browsers,
 } from '@whiskeysockets/baileys';
 import QRCode from 'qrcode';
 import path from 'path';
@@ -329,6 +331,45 @@ export function getAllSessionsStatus(): WhatsAppState[] {
   return result;
 }
 
+let cachedWaVersion: [number, number, number] | null = null;
+let lastVersionFetchTime = 0;
+
+/**
+ * Fetches the live WhatsApp Web protocol version from web.whatsapp.com/sw.js.
+ * This guarantees handshake compatibility and prevents "Can't link device / internet connection error".
+ */
+export async function getWaVersion(): Promise<[number, number, number]> {
+  const now = Date.now();
+  if (cachedWaVersion && now - lastVersionFetchTime < 6 * 60 * 60 * 1000) {
+    return cachedWaVersion;
+  }
+  try {
+    const waWebResult = await fetchLatestWaWebVersion({ timeout: 5000 } as any);
+    if (waWebResult?.version && Array.isArray(waWebResult.version) && waWebResult.version.length === 3) {
+      cachedWaVersion = waWebResult.version as [number, number, number];
+      lastVersionFetchTime = now;
+      console.log(`[WhatsApp] Using live WhatsApp Web version: ${cachedWaVersion.join('.')}`);
+      return cachedWaVersion;
+    }
+  } catch (err: any) {
+    console.warn('[WhatsApp] Could not fetch live WaWeb version, trying Baileys fallback:', err?.message);
+  }
+
+  try {
+    const baileysResult = await fetchLatestBaileysVersion();
+    if (baileysResult?.version && Array.isArray(baileysResult.version) && baileysResult.version.length === 3) {
+      cachedWaVersion = baileysResult.version as [number, number, number];
+      lastVersionFetchTime = now;
+      return cachedWaVersion;
+    }
+  } catch (err: any) {
+    console.warn('[WhatsApp] Could not fetch Baileys version:', err?.message);
+  }
+
+  // Modern fallback if all network requests fail
+  return [2, 3000, 1048361770];
+}
+
 /**
  * Connects or initializes a Baileys socket for a given pgId.
  */
@@ -344,28 +385,48 @@ export async function connectWhatsApp(
     await purgeSessionStorage(pgId);
   }
 
-  // Already connected with an active socket? Don't create another!
+  // 1. Already connected with an active socket? Don't create another!
   if (session.status === 'connected' && session.sock) {
     return getWhatsAppStatus(pgId);
   }
 
-  // If already initializing and waiting for QR or open connection, avoid duplicate calls
-  if (session.isInitializing) {
+  // 2. Already actively pairing with an active socket and live QR code? Don't recreate socket unless forceRefresh is true!
+  if (!options?.forceRefresh && session.status === 'pairing' && session.sock && session.currentQr) {
     return getWhatsAppStatus(pgId);
   }
 
-  // Check if session directory has invalid/logged-out creds
+  // 3. If socket is actively initializing (in the middle of handshake), wait for it to avoid racing sockets
+  if (session.isInitializing) {
+    await new Promise<void>((resolve) => {
+      const timer = setTimeout(() => resolve(), 6000);
+      session.qrResolvers.push(() => {
+        clearTimeout(timer);
+        resolve();
+      });
+      session.readyResolvers.push(() => {
+        clearTimeout(timer);
+        resolve();
+      });
+    });
+    return getWhatsAppStatus(pgId);
+  }
+
+  // Check if session directory has corrupted creds.json (empty or invalid JSON)
   const sessionDir = getSessionDir(pgId);
   const credsPath = path.join(sessionDir, 'creds.json');
   if (fs.existsSync(credsPath)) {
     try {
-      const creds = JSON.parse(fs.readFileSync(credsPath, 'utf8'));
-      if (creds && (creds.registered === false || !creds.me?.id)) {
-        console.log(`[WhatsApp ${pgId}] Detected un-registered/stale credentials on disk. Purging...`);
-        await purgeSessionStorage(pgId);
+      const raw = fs.readFileSync(credsPath, 'utf8');
+      if (raw.trim().length > 0) {
+        JSON.parse(raw);
+      } else {
+        fs.unlinkSync(credsPath);
       }
     } catch {
-      await purgeSessionStorage(pgId);
+      console.warn(`[WhatsApp ${pgId}] Corrupt creds.json found. Cleaning up corrupt file.`);
+      try {
+        fs.unlinkSync(credsPath);
+      } catch {}
     }
   }
 
@@ -395,14 +456,20 @@ export async function connectWhatsApp(
 
   try {
     const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
-    const { version } = await fetchLatestBaileysVersion();
+    const version = await getWaVersion();
 
     const sock = makeWASocket({
       version,
       auth: state,
+      browser: Browsers.ubuntu('Chrome'), // Proven standard desktop tuple: ['Ubuntu', 'Chrome', '22.04.4']
       printQRInTerminal: false,
+      qrTimeout: 60000, // 60s per QR code (prevents 20s premature expiry during scanning)
       connectTimeoutMs: 60000,
       defaultQueryTimeoutMs: 60000,
+      keepAliveIntervalMs: 30000,
+      syncFullHistory: false, // Critical: stops phone from timing out/freezing while uploading gigabytes of chat history
+      markOnlineOnConnect: false,
+      generateHighQualityLinkPreview: false,
     });
 
     session.sock = sock;
@@ -420,6 +487,7 @@ export async function connectWhatsApp(
           session.currentQr = await QRCode.toDataURL(qr, { margin: 2, scale: 8 });
           session.status = 'pairing';
           session.isSocketReadyForPairing = true;
+          session.isInitializing = false;
           console.log(`[WhatsApp ${pgId}] New QR code generated successfully`);
 
           // Notify all waiters
@@ -434,15 +502,12 @@ export async function connectWhatsApp(
 
       if (connection === 'close') {
         const statusCode = (lastDisconnect?.error as any)?.output?.statusCode;
-        const isRestartRequired = statusCode === DisconnectReason.restartRequired;
-        const isLoggedOut = statusCode === DisconnectReason.loggedOut;
+        const isRestartRequired = statusCode === DisconnectReason.restartRequired; // 515
+        const isLoggedOut = statusCode === DisconnectReason.loggedOut; // 401
+        const isBadSession = statusCode === DisconnectReason.badSession; // 500
+        const isTimedOut = statusCode === DisconnectReason.timedOut; // 408
         const shouldReconnect = isRestartRequired || (!isLoggedOut && statusCode !== 440);
 
-        session.status = 'disconnected';
-        session.currentQr = null;
-        session.pairingCode = null;
-        session.isSocketReadyForPairing = false;
-        session.lastError = lastDisconnect?.error?.message || 'Connection closed';
         console.log(`[WhatsApp ${pgId}] Closed (${statusCode}). Reconnecting: ${shouldReconnect} (attempt ${session.reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`);
 
         if (session.reconnectTimer) {
@@ -450,17 +515,58 @@ export async function connectWhatsApp(
           session.reconnectTimer = null;
         }
 
-        if (isLoggedOut) {
+        // Case 1: Post-scan handshake restart (515) - Essential for completing pairing!
+        if (isRestartRequired) {
+          console.log(`[WhatsApp ${pgId}] Authentication restart required (515) - completing pairing handshake immediately...`);
+          session.status = 'pairing';
+          session.isSocketReadyForPairing = false;
+          session.isInitializing = false;
+          session.reconnectTimer = setTimeout(() => {
+            connectWhatsApp(pgId).catch((err) =>
+              console.error(`[WhatsApp ${pgId} Post-Pair Reconnect Error]:`, err.message)
+            );
+          }, 300);
+          return;
+        }
+
+        // Case 2: Permanent logout or corrupted credentials - Purge storage
+        if (isLoggedOut || isBadSession) {
+          session.status = 'disconnected';
+          session.currentQr = null;
+          session.pairingCode = null;
+          session.isSocketReadyForPairing = false;
+          session.isInitializing = false;
           session.reconnectAttempts = 0;
-          console.log(`[WhatsApp ${pgId}] Phone logged out. Purging dead credentials on disk and Supabase.`);
+          session.lastError = isLoggedOut ? 'WhatsApp logged out by phone.' : 'Bad session. Purged.';
+          console.log(`[WhatsApp ${pgId}] Session ended (${statusCode}). Purging credentials.`);
           await purgeSessionStorage(pgId);
           return;
         }
 
+        // Case 3: QR refs attempts ended (nobody scanned within the allowed QR cycles)
+        if (isTimedOut && !hasExistingSession(pgId)) {
+          session.status = 'disconnected';
+          session.currentQr = null;
+          session.pairingCode = null;
+          session.isSocketReadyForPairing = false;
+          session.isInitializing = false;
+          session.lastError = 'QR code expired. Click "Refresh QR Code" to generate a new one.';
+          console.log(`[WhatsApp ${pgId}] QR code cycle expired. Waiting for user interaction.`);
+          return;
+        }
+
+        // Case 4: Network disconnect or socket termination
+        session.status = 'disconnected';
+        session.currentQr = null;
+        session.pairingCode = null;
+        session.isSocketReadyForPairing = false;
+        session.isInitializing = false;
+        session.lastError = lastDisconnect?.error?.message || 'Connection closed';
+
         if (shouldReconnect || hasExistingSession(pgId)) {
           if (session.reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
             session.reconnectAttempts++;
-            const delay = isRestartRequired ? 1500 : Math.min(2000 * Math.pow(2, session.reconnectAttempts), 30000);
+            const delay = Math.min(2000 * Math.pow(2, session.reconnectAttempts), 30000);
             console.log(`[WhatsApp ${pgId}] Scheduling reconnection attempt ${session.reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS} in ${delay}ms...`);
             session.reconnectTimer = setTimeout(() => {
               connectWhatsApp(pgId).catch((err) =>
@@ -473,6 +579,7 @@ export async function connectWhatsApp(
         }
       } else if (connection === 'open') {
         session.reconnectAttempts = 0;
+        session.isInitializing = false;
         if (session.reconnectTimer) {
           clearTimeout(session.reconnectTimer);
           session.reconnectTimer = null;
@@ -501,8 +608,6 @@ export async function connectWhatsApp(
     session.isInitializing = false;
     console.error(`[WhatsApp ${pgId} Init Error]:`, err.message);
     throw err;
-  } finally {
-    session.isInitializing = false;
   }
 
   // If QR is already generated or already connected, return right away
@@ -512,13 +617,18 @@ export async function connectWhatsApp(
 
   // Otherwise wait up to 10 seconds for initial QR or open connection
   await new Promise<void>((resolve) => {
-    const timer = setTimeout(() => resolve(), 10000);
+    const timer = setTimeout(() => {
+      session.isInitializing = false;
+      resolve();
+    }, 10000);
     session.qrResolvers.push(() => {
       clearTimeout(timer);
+      session.isInitializing = false;
       resolve();
     });
     session.readyResolvers.push(() => {
       clearTimeout(timer);
+      session.isInitializing = false;
       resolve();
     });
   });
