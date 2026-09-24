@@ -5,15 +5,31 @@ import { sendWhatsAppMessage, decodeBase64Image } from './whatsapp.service';
 import { getPG } from './pg.service';
 import { formatDateDMY, formatMonthMY } from '../utils/date';
 
+export function calculateTenantDueDate(month: string, moveInDate?: string | null, fallbackDay: number = 5): string {
+  let day = fallbackDay;
+  if (moveInDate) {
+    const d = new Date(moveInDate).getDate();
+    if (!isNaN(d) && d >= 1 && d <= 31) {
+      day = d;
+    }
+  }
+  const [yearStr, monthStr] = month.split('-');
+  const year = parseInt(yearStr, 10);
+  const m = parseInt(monthStr, 10);
+  const maxDays = new Date(year, m, 0).getDate();
+  const clampedDay = Math.min(day, maxDays);
+  return `${month}-${String(clampedDay).padStart(2, '0')}T00:00:00Z`;
+}
+
 export async function ensureCurrentMonthRent(pgId: string, targetMonth?: string) {
   const month = targetMonth || new Date().toISOString().slice(0, 7);
   try {
     const billingSettings = await getBillingSettings(pgId);
 
-    // Get active tenants in this PG with room assignments
+    // Get active tenants in this PG with room assignments and move_in_date for cycle calculation
     const { data: tenants, error: tenantErr } = await supabaseAdmin
       .from('tenants')
-      .select('id, room_id, bed_id, rooms(base_rent_paise)')
+      .select('id, room_id, bed_id, move_in_date, rooms(base_rent_paise)')
       .eq('pg_id', pgId)
       .eq('status', 'active')
       .not('room_id', 'is', null);
@@ -94,6 +110,9 @@ export async function ensureCurrentMonthRent(pgId: string, targetMonth?: string)
         pg_snapshot: pgProfileSnapshot,
       });
 
+      // Tenant's due date is their individual cycle completion date based on move-in day
+      const tenantDueDate = calculateTenantDueDate(month, tenantData.move_in_date, 5);
+
       return {
         pg_id: pgId,
         tenant_id: tenant.id,
@@ -103,7 +122,7 @@ export async function ensureCurrentMonthRent(pgId: string, targetMonth?: string)
         late_fee_paise: 0,
         total_due_paise: totalDue,
         status: 'pending',
-        due_date: `${month}-05T00:00:00Z`,
+        due_date: tenantDueDate,
         notes: itemizedNotes,
       };
     });
@@ -198,10 +217,10 @@ export async function generateRentRecords(
   // Get billing settings for default maintenance charge & electricity rate
   const billingSettings = await getBillingSettings(pgId);
 
-  // Get active tenants in this PG with room assignments
+  // Get active tenants in this PG with room assignments and move_in_date
   let query = supabaseAdmin
     .from('tenants')
-    .select('id, room_id, bed_id, rooms(base_rent_paise)')
+    .select('id, room_id, bed_id, move_in_date, rooms(base_rent_paise)')
     .eq('pg_id', pgId)
     .eq('status', 'active')
     .not('room_id', 'is', null);
@@ -290,6 +309,8 @@ export async function generateRentRecords(
         pg_snapshot: pgProfileSnapshot,
       });
 
+      const tenantDueDate = dueDate || calculateTenantDueDate(month, tenantData.move_in_date, 5);
+
       return {
         pg_id: pgId,
         tenant_id: tenant.id,
@@ -299,7 +320,7 @@ export async function generateRentRecords(
         late_fee_paise: 0,
         total_due_paise: totalDue,
         status: 'pending',
-        due_date: dueDate || `${month}-05T00:00:00Z`, // Default due: 5th of the month
+        due_date: tenantDueDate,
         notes: itemizedNotes,
       };
     });
@@ -401,6 +422,16 @@ export async function updateRentRecord(
     .single();
 
   if (error) throw new Error(error.message);
+
+  // If marked paid, automatically dispatch verified bill / receipt to tenant WhatsApp
+  if (updates.status === 'paid') {
+    try {
+      await sendRentBillWhatsApp(pgId, id);
+      console.log(`[RentService] Automatically sent verified bill to WhatsApp for rent record ${id}`);
+    } catch (waErr: any) {
+      console.warn('[RentService] Notice dispatching WhatsApp verified bill:', waErr?.message);
+    }
+  }
 
   await logAudit({
     pgId,
@@ -573,47 +604,97 @@ export async function sendRentBillWhatsApp(pgId: string, rentRecordId: string) {
   const pgName = pg?.name || 'Sagar PG';
   const tenantName = (record.tenant as any)?.full_name || 'Resident';
   const roomNumber = (record.room as any)?.room_number ? `Room ${(record.room as any).room_number}` : 'N/A';
-  const totalAmount = `₹${(record.total_due_paise / 100).toLocaleString('en-IN')}`;
   const dueDateFormatted = formatDateDMY(record.due_date);
   const invoiceNo = `INV-${record.month.replace('-', '')}-${record.id.slice(0, 6).toUpperCase()}`;
 
-  let paymentDetails = '';
-  if (pg?.upi_id) {
-    paymentDetails += `• UPI ID: *${pg.upi_id}*\n`;
-  }
-  if (pg?.account_number) {
-    paymentDetails += `• Bank: *${pg.bank_name || 'Bank'}*\n`;
-    paymentDetails += `• Account No: *${pg.account_number}*\n`;
-    paymentDetails += `• IFSC: *${pg.ifsc_code || 'N/A'}*\n`;
-    if (pg.account_holder_name) {
-      paymentDetails += `• Name: *${pg.account_holder_name}*\n`;
+  // Parse itemized breakdown from notes
+  let notesObj: any = {};
+  if (record.notes) {
+    try {
+      notesObj = JSON.parse(record.notes);
+    } catch {
+      // plain text note
     }
   }
-  if (paymentQrStr) {
-    paymentDetails += `📸 *Payment QR code is attached above. Scan & pay via any UPI app.*\n`;
+
+  const baseRentPaise = notesObj.base_rent_paise ?? record.rent_amount_paise;
+  const maintenancePaise = notesObj.maintenance_paise ?? 0;
+  const electricityPaise = notesObj.electricity_amount_paise ?? 0;
+  const electricityUnits = notesObj.electricity_units ?? 0;
+  const lateFeePaise = record.late_fee_paise || 0;
+  const totalAmountPaise = record.total_due_paise || (baseRentPaise + maintenancePaise + electricityPaise + lateFeePaise);
+  const formattedTotal = `₹${(totalAmountPaise / 100).toLocaleString('en-IN')}`;
+
+  const isPaid = record.status === 'paid';
+  const paidDateFormatted = record.paid_date ? formatDateDMY(record.paid_date) : formatDateDMY(new Date());
+
+  let breakdown = `• Monthly Rent: ₹${(baseRentPaise / 100).toLocaleString('en-IN')}\n`;
+  if (electricityPaise > 0 || electricityUnits > 0) {
+    breakdown += `• Electricity (${electricityUnits} units): ₹${(electricityPaise / 100).toLocaleString('en-IN')}\n`;
+  }
+  if (maintenancePaise > 0) {
+    breakdown += `• Maintenance Charges: ₹${(maintenancePaise / 100).toLocaleString('en-IN')}\n`;
+  }
+  if (lateFeePaise > 0) {
+    breakdown += `• Late Fee / Fine: ₹${(lateFeePaise / 100).toLocaleString('en-IN')}\n`;
   }
 
+  let paymentDetails = '';
+  if (!isPaid) {
+    if (pg?.upi_id) paymentDetails += `• UPI ID: *${pg.upi_id}*\n`;
+    if (pg?.account_number) {
+      paymentDetails += `• Bank: *${pg.bank_name || 'Bank'}*\n`;
+      paymentDetails += `• Account No: *${pg.account_number}*\n`;
+      paymentDetails += `• IFSC: *${pg.ifsc_code || 'N/A'}*\n`;
+      if (pg.account_holder_name) paymentDetails += `• Name: *${pg.account_holder_name}*\n`;
+    }
+    if (paymentQrStr) {
+      paymentDetails += `📸 *Payment QR code is attached above. Scan & pay via any UPI app.*\n`;
+    }
+  }
+
+  const billHeader = isPaid
+    ? `🧾 *OFFICIAL RENT BILL & RECEIPT — ${pgName.toUpperCase()}*`
+    : `📋 *RENT INVOICE — ${pgName.toUpperCase()}*`;
+
+  const statusSection = isPaid
+    ? `✅ *Status*: *VERIFIED & PAID*\n📅 *Paid On*: ${paidDateFormatted}\n`
+    : `⏳ *Status*: *${record.status.toUpperCase()}*\n📅 *Due Date*: ${dueDateFormatted}\n`;
+
+  const footerSection = isPaid
+    ? `━━━━━━━━━━━━━━━━━━━━\n` +
+      `✅ *Payment has been verified and confirmed by property management.*\n` +
+      `📱 This official bill is recorded and accessible anytime in your *PG Resident App*.\n`
+    : `━━━━━━━━━━━━━━━━━━━━\n` +
+      (paymentDetails ? `*Payment Details*:\n${paymentDetails}\n` : '') +
+      `📱 You can track your electricity units and payment history in the *PG Resident App*.\n`;
+
   const invoiceMsg =
-    `📋 *RENT INVOICE — ${pgName.toUpperCase()}*\n` +
+    `${billHeader}\n` +
     (pg.tagline ? `_${pg.tagline}_\n` : '') +
     `━━━━━━━━━━━━━━━━━━━━\n` +
     `Dear *${tenantName}*,\n\n` +
     `Invoice: *${invoiceNo}*\n` +
-    `Month: *${formatMonthMY(record.month)}*\n` +
+    `Billing Month: *${formatMonthMY(record.month)}*\n` +
     `👤 *Tenant*: *${tenantName}*\n` +
     `🏠 *Room*: *${roomNumber}*\n\n` +
-    `💵 *Total Due: ${totalAmount}*\n` +
-    `Due Date: *${dueDateFormatted}*\n` +
-    `Status: *${record.status.toUpperCase()}*\n` +
+    `*Bill Breakdown*:\n${breakdown}` +
     `━━━━━━━━━━━━━━━━━━━━\n` +
-    (paymentDetails ? `*Payment Details*:\n${paymentDetails}\n` : '') +
+    `💰 *TOTAL AMOUNT: ${formattedTotal}*\n` +
+    statusSection +
+    footerSection +
     (pg.phone ? `📞 Contact: *${pg.phone}*\n` : '') +
     (pg.owner_name ? `👤 Owner: *${pg.owner_name}*\n` : '') +
     (pg.address ? `📍 Address: ${pg.address}\n` : '') +
     `\nThank you for staying with us!\n` +
     `*Team ${pgName}*`;
 
-  await sendWhatsAppMessage(record.tenant.phone, invoiceMsg, { pgId: record.pg_id, imageBuffer: qrBuffer });
+  await sendWhatsAppMessage(record.tenant.phone, invoiceMsg, {
+    pgId: record.pg_id,
+    purpose: isPaid ? 'PAYMENT_RECEIPT' : 'INVOICE',
+    imageBuffer: isPaid ? (pg.logo_url ? decodeBase64Image(pg.logo_url) : null) : qrBuffer,
+  });
+
   return { success: true, message: `Invoice sent to ${record.tenant.phone}` };
 }
 

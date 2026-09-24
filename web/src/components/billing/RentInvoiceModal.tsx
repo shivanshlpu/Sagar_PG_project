@@ -241,27 +241,16 @@ export function RentInvoiceModal({
       }
     >
       {/* Scrollable invoice container for screen viewing */}
-      <div style={{ maxHeight: '78vh', overflowY: 'auto', padding: '8px 4px' }}>
+      <div className="invoice-modal-scroll">
         {/* Printable Root Element */}
         <div
           id="printable-rent-bill"
-          style={{
-            backgroundColor: '#ffffff',
-            color: '#1e293b',
-            fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
-            padding: '36px 36px 20px 36px',
-            maxWidth: '780px',
-            margin: '0 auto',
-            borderRadius: '12px',
-            boxShadow: '0 4px 20px rgba(0,0,0,0.06)',
-            position: 'relative',
-            overflow: 'hidden',
-          }}
+          className="invoice-paper-sheet"
         >
           {/* Top Header Row */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '20px', marginBottom: '20px' }}>
+          <div className="invoice-header-flex">
             {/* Left: Logo & PG Details */}
-            <div style={{ flex: 1 }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
               {/* Logo & Tagline */}
               <div style={{ marginBottom: '12px' }}>
                 {logoUrl ? (
@@ -303,7 +292,7 @@ export function RentInvoiceModal({
               </div>
 
               {/* PG Name & Contact Meta */}
-              <h1 style={{ margin: '0 0 4px 0', fontSize: '22px', fontWeight: 800, color: '#0f2942', letterSpacing: '-0.02em' }}>
+              <h1 style={{ margin: '0 0 4px 0', fontSize: '22px', fontWeight: 800, color: '#0f2942', letterSpacing: '-0.02em', wordBreak: 'break-word' }}>
                 {pgName}
               </h1>
 
@@ -316,7 +305,7 @@ export function RentInvoiceModal({
               <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', fontSize: '12px', color: '#475569' }}>
                 <div style={{ display: 'flex', alignItems: 'flex-start', gap: '6px' }}>
                   <MapPin size={13} style={{ color: '#0284c7', flexShrink: 0, marginTop: '2px' }} />
-                  <span>{fullAddress}</span>
+                  <span style={{ wordBreak: 'break-word' }}>{fullAddress}</span>
                 </div>
                 {activePG.phone && (
                   <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -327,37 +316,34 @@ export function RentInvoiceModal({
                 {activePG.email && (
                   <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                     <Mail size={13} style={{ color: '#0284c7', flexShrink: 0 }} />
-                    <span>{activePG.email}</span>
+                    <span style={{ wordBreak: 'break-all' }}>{activePG.email}</span>
                   </div>
                 )}
               </div>
             </div>
 
             {/* Right: RENT INVOICE Title + Inset Metadata Box */}
-            <div style={{ textAlign: 'right', minWidth: '240px' }}>
-              <div style={{
-                fontSize: '24px',
-                fontWeight: 900,
-                color: '#0f2942',
-                letterSpacing: '0.02em',
-                textTransform: 'uppercase',
-                marginBottom: '10px',
-              }}>
+            <div className="invoice-meta-container">
+              <div
+                className="invoice-title-text"
+                style={{
+                  fontSize: '24px',
+                  fontWeight: 900,
+                  color: '#0f2942',
+                  letterSpacing: '0.02em',
+                  textTransform: 'uppercase',
+                  marginBottom: '10px',
+                }}
+              >
                 RENT INVOICE
               </div>
 
               {/* Inset Card for Invoice details */}
-              <div style={{
-                backgroundColor: '#f1f5f9',
-                borderRadius: '8px',
-                padding: '10px 14px',
-                textAlign: 'left',
-                border: '1px solid #e2e8f0',
-              }}>
+              <div className="invoice-meta-card">
                 <div style={{ display: 'grid', gridTemplateColumns: '95px 12px 1fr', gap: '4px', fontSize: '12px' }}>
                   <span style={{ color: '#64748b', fontWeight: 500 }}>Invoice No</span>
                   <span style={{ color: '#94a3b8' }}>:</span>
-                  <strong style={{ color: '#0f2942', fontFamily: 'monospace', fontWeight: 700 }}>{invoiceNumber}</strong>
+                  <strong style={{ color: '#0f2942', fontFamily: 'monospace', fontWeight: 700, wordBreak: 'break-all' }}>{invoiceNumber}</strong>
 
                   <span style={{ color: '#64748b', fontWeight: 500 }}>Invoice Date</span>
                   <span style={{ color: '#94a3b8' }}>:</span>
@@ -411,58 +397,60 @@ export function RentInvoiceModal({
             </div>
           </div>
 
-          {/* Itemized Charges Table */}
-          <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '22px', fontSize: '13px' }}>
-            <thead>
-              <tr style={{ backgroundColor: '#0f2942', color: '#ffffff' }}>
-                <th style={{ width: '70px', padding: '9px 12px', textAlign: 'center', fontWeight: 700, borderRadius: '6px 0 0 0' }}>
-                  Sl. No.
-                </th>
-                <th style={{ padding: '9px 12px', textAlign: 'left', fontWeight: 700 }}>
-                  Description
-                </th>
-                <th style={{ width: '150px', padding: '9px 14px', textAlign: 'right', fontWeight: 700, borderRadius: '0 6px 0 0' }}>
-                  Amount (₹)
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {lineItems.map((item, idx) => (
-                <tr
-                  key={idx}
-                  style={{
-                    backgroundColor: idx % 2 === 1 ? '#f8fafc' : '#ffffff',
-                    borderBottom: '1px solid #e2e8f0',
-                  }}
-                >
-                  <td style={{ padding: '10px 12px', textAlign: 'center', color: '#64748b' }}>
-                    {item.sl}
+          {/* Itemized Charges Table with Responsive Scroll Wrapper */}
+          <div className="invoice-table-wrapper">
+            <table style={{ width: '100%', minWidth: '440px', borderCollapse: 'collapse', marginBottom: '22px', fontSize: '13px' }}>
+              <thead>
+                <tr style={{ backgroundColor: '#0f2942', color: '#ffffff' }}>
+                  <th style={{ width: '70px', padding: '9px 12px', textAlign: 'center', fontWeight: 700, borderRadius: '6px 0 0 0' }}>
+                    Sl. No.
+                  </th>
+                  <th style={{ padding: '9px 12px', textAlign: 'left', fontWeight: 700 }}>
+                    Description
+                  </th>
+                  <th style={{ width: '150px', padding: '9px 14px', textAlign: 'right', fontWeight: 700, borderRadius: '0 6px 0 0' }}>
+                    Amount (₹)
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {lineItems.map((item, idx) => (
+                  <tr
+                    key={idx}
+                    style={{
+                      backgroundColor: idx % 2 === 1 ? '#f8fafc' : '#ffffff',
+                      borderBottom: '1px solid #e2e8f0',
+                    }}
+                  >
+                    <td style={{ padding: '10px 12px', textAlign: 'center', color: '#64748b' }}>
+                      {item.sl}
+                    </td>
+                    <td style={{ padding: '10px 12px', fontWeight: 500, color: '#1e293b' }}>
+                      {item.description}
+                    </td>
+                    <td style={{ padding: '10px 14px', textAlign: 'right', fontWeight: 600, color: '#0f2942', fontVariantNumeric: 'tabular-nums' }}>
+                      {(item.amountPaise / 100).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr style={{ backgroundColor: '#f1f5f9', borderTop: '2px solid #cbd5e1' }}>
+                  <td colSpan={2} style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 800, fontSize: '14px', color: '#0f2942' }}>
+                    Total Amount
                   </td>
-                  <td style={{ padding: '10px 12px', fontWeight: 500, color: '#1e293b' }}>
-                    {item.description}
-                  </td>
-                  <td style={{ padding: '10px 14px', textAlign: 'right', fontWeight: 600, color: '#0f2942', fontVariantNumeric: 'tabular-nums' }}>
-                    {(item.amountPaise / 100).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                  <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 900, fontSize: '16px', color: '#0f2942', fontVariantNumeric: 'tabular-nums' }}>
+                    ₹ {(totalDuePaise / 100).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                   </td>
                 </tr>
-              ))}
-            </tbody>
-            <tfoot>
-              <tr style={{ backgroundColor: '#f1f5f9', borderTop: '2px solid #cbd5e1' }}>
-                <td colSpan={2} style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 800, fontSize: '14px', color: '#0f2942' }}>
-                  Total Amount
-                </td>
-                <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 900, fontSize: '16px', color: '#0f2942', fontVariantNumeric: 'tabular-nums' }}>
-                  ₹ {(totalDuePaise / 100).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                </td>
-              </tr>
-            </tfoot>
-          </table>
+              </tfoot>
+            </table>
+          </div>
 
           {/* Bottom Section: Payment Details (Left) + Scan to Pay & Signature (Right) */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 0.8fr', gap: '20px', alignItems: 'flex-start', marginBottom: '26px' }}>
+          <div className="invoice-bottom-grid">
             {/* Left: Payment Details Card + Notice */}
-            <div>
+            <div className="invoice-payment-col">
               <div style={{
                 backgroundColor: '#f8fafc',
                 borderRadius: '8px',
@@ -483,7 +471,7 @@ export function RentInvoiceModal({
                 <div style={{ padding: '10px 14px', display: 'grid', gridTemplateColumns: '95px 12px 1fr', gap: '4px', fontSize: '12px' }}>
                   <span style={{ color: '#64748b', fontWeight: 500 }}>UPI ID</span>
                   <span style={{ color: '#94a3b8' }}>:</span>
-                  <strong style={{ color: '#0284c7', fontWeight: 700 }}>{activePG.upi_id || 'Not configured'}</strong>
+                  <strong style={{ color: '#0284c7', fontWeight: 700, wordBreak: 'break-all' }}>{activePG.upi_id || 'Not configured'}</strong>
 
                   <span style={{ color: '#64748b', fontWeight: 500 }}>Bank Name</span>
                   <span style={{ color: '#94a3b8' }}>:</span>
@@ -521,7 +509,7 @@ export function RentInvoiceModal({
             </div>
 
             {/* Right: Scan to Pay UPI QR + Badges + Signature */}
-            <div style={{ textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+            <div className="invoice-qr-col">
               <div style={{ fontSize: '13px', fontWeight: 800, color: '#0f2942', marginBottom: '6px' }}>
                 Scan to Pay
               </div>
@@ -584,7 +572,7 @@ export function RentInvoiceModal({
               </div>
 
               {/* Signature / Greeting */}
-              <div style={{ marginTop: '2px' }}>
+              <div style={{ marginTop: '2px', textAlign: 'center' }}>
                 <div style={{
                   fontFamily: "'Brush Script MT', 'Dancing Script', 'Caveat', cursive, sans-serif",
                   fontSize: '24px',
@@ -606,20 +594,8 @@ export function RentInvoiceModal({
           </div>
 
           {/* Bottom Decorative Footer Ribbon */}
-          <div style={{
-            backgroundColor: '#0f2942',
-            color: '#ffffff',
-            margin: '0 -36px -20px -36px',
-            padding: '12px 20px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: '8px',
-            fontSize: '12px',
-            fontWeight: 600,
-            letterSpacing: '0.03em',
-          }}>
-            <Home size={15} style={{ color: '#38bdf8' }} />
+          <div className="invoice-footer-ribbon">
+            <Home size={15} style={{ color: '#38bdf8', flexShrink: 0 }} />
             <span>Comfortable Homes &nbsp;|&nbsp; Happy Tenants &nbsp;|&nbsp; Better Living</span>
           </div>
         </div>

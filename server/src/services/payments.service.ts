@@ -1,6 +1,7 @@
 import { supabaseAdmin } from '../config/supabase';
 import { logAudit } from './auditLog.service';
 import { sendWhatsAppMessage } from './whatsapp.service';
+import { sendRentBillWhatsApp } from './rent.service';
 import { formatDateDMY } from '../utils/date';
 import crypto from 'crypto';
 
@@ -225,12 +226,16 @@ export async function verifyPayment(
     details: { status, rejection_reason: rejectionReason },
   });
 
-  // If verified, send automated WhatsApp receipt to the resident
+  // If verified, send automated official WhatsApp verified bill / receipt to the resident
   if (status === 'verified') {
     try {
-      await sendPaymentReceiptWhatsApp(pgId, id);
+      if (payment.rent_record_id) {
+        await sendRentBillWhatsApp(pgId, payment.rent_record_id);
+      } else {
+        await sendPaymentReceiptWhatsApp(pgId, id);
+      }
     } catch (waErr: any) {
-      console.warn(`[Payments] WhatsApp receipt dispatch error: ${waErr?.message}`);
+      console.warn(`[Payments] WhatsApp bill/receipt dispatch error: ${waErr?.message}`);
     }
   }
 

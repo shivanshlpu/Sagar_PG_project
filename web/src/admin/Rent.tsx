@@ -61,7 +61,10 @@ export default function AdminRent() {
 
   async function updateStatus(id: string, status: string) {
     const res = await apiPatch(`/rent/${id}/status`, { status });
-    if (res.success) { showToast('Status updated'); loadRecords(); }
+    if (res.success) {
+      showToast(status === 'paid' ? 'Payment marked as Paid & verified bill sent to WhatsApp!' : 'Status updated');
+      loadRecords();
+    }
     else showToast(res.error || 'Update failed', 'error');
   }
 

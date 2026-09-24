@@ -565,6 +565,142 @@ input[type="number"] {
   margin: 8mm;
 }
 
+/* ============================================================
+   Responsive Rent Invoice Modal & Print Styles
+   ============================================================ */
+
+.invoice-modal-scroll {
+  max-height: 78vh;
+  overflow-y: auto;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 8px 4px;
+}
+
+.invoice-paper-sheet {
+  background-color: #ffffff;
+  color: #1e293b;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  padding: 32px 32px 20px 32px;
+  max-width: 780px;
+  margin: 0 auto;
+  border-radius: 12px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.06);
+  position: relative;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.invoice-header-flex {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 20px;
+  margin-bottom: 20px;
+}
+
+.invoice-meta-container {
+  text-align: right;
+  min-width: 240px;
+}
+
+.invoice-meta-card {
+  background-color: #f1f5f9;
+  border-radius: 8px;
+  padding: 10px 14px;
+  text-align: left;
+  border: 1px solid #e2e8f0;
+}
+
+.invoice-bottom-grid {
+  display: grid;
+  grid-template-columns: 1.2fr 0.8fr;
+  gap: 20px;
+  align-items: flex-start;
+  margin-bottom: 24px;
+}
+
+.invoice-qr-col {
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.invoice-footer-ribbon {
+  background-color: #0f2942;
+  color: #ffffff;
+  margin: 0 -32px -20px -32px;
+  padding: 12px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+
+/* Mobile Screen View (< 640px) */
+@media screen and (max-width: 640px) {
+  .invoice-modal-scroll {
+    padding: 0 !important;
+  }
+
+  .invoice-paper-sheet {
+    padding: 16px 14px 14px 14px !important;
+    border-radius: 8px !important;
+    box-shadow: none !important;
+    max-width: 100% !important;
+    width: 100% !important;
+  }
+
+  .invoice-header-flex {
+    flex-direction: column !important;
+    gap: 14px !important;
+    margin-bottom: 14px !important;
+  }
+
+  .invoice-meta-container {
+    text-align: left !important;
+    min-width: 100% !important;
+    width: 100% !important;
+  }
+
+  .invoice-meta-container .invoice-title-text {
+    text-align: left !important;
+    font-size: 20px !important;
+    margin-bottom: 6px !important;
+  }
+
+  .invoice-bottom-grid {
+    grid-template-columns: 1fr !important;
+    gap: 16px !important;
+    margin-bottom: 18px !important;
+  }
+
+  .invoice-qr-col {
+    padding-top: 14px !important;
+    border-top: 1px dashed #e2e8f0 !important;
+    width: 100% !important;
+  }
+
+  .invoice-footer-ribbon {
+    margin: 0 -14px -14px -14px !important;
+    padding: 10px 10px !important;
+    font-size: 10px !important;
+    flex-wrap: wrap !important;
+    text-align: center !important;
+    gap: 4px !important;
+  }
+
+  .invoice-table-wrapper {
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    margin-bottom: 16px !important;
+  }
+}
+
 @media print {
   body * {
     visibility: hidden;
@@ -574,7 +710,7 @@ input[type="number"] {
   #printable-reports-page, #printable-reports-page * {
     visibility: visible;
   }
-  #printable-rent-bill {
+  #printable-rent-bill, .invoice-paper-sheet {
     position: absolute;
     left: 0;
     top: 0;
@@ -588,6 +724,23 @@ input[type="number"] {
     border-radius: 0 !important;
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
+  }
+  .invoice-header-flex {
+    display: flex !important;
+    flex-direction: row !important;
+    justify-content: space-between !important;
+  }
+  .invoice-meta-container {
+    min-width: 240px !important;
+    text-align: right !important;
+  }
+  .invoice-bottom-grid {
+    display: grid !important;
+    grid-template-columns: 1.2fr 0.8fr !important;
+    gap: 20px !important;
+  }
+  .invoice-footer-ribbon {
+    margin: 0 -12mm -10mm -12mm !important;
   }
   #printable-payment-receipt, #printable-reports-page {
     position: absolute;
@@ -604,5 +757,6 @@ input[type="number"] {
     display: none !important;
   }
 }
+
 
 

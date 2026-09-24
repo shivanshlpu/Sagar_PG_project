@@ -100,7 +100,7 @@ export function PendingRentModal({ isOpen, onClose, onRecordUpdated }: PendingRe
               : r
           )
         );
-        showToast(newStatus === 'paid' ? 'Payment marked as Paid!' : 'Rent marked as Unpaid');
+        showToast(newStatus === 'paid' ? 'Payment marked as Paid & verified bill sent to WhatsApp!' : 'Rent marked as Unpaid');
         onRecordUpdated?.();
       } else {
         showToast(res.error || 'Failed to update rent status', 'error');

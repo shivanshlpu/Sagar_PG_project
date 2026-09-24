@@ -90,7 +90,7 @@ export async function checkAndSendRentReminders(targetPgId?: string): Promise<{
     // 3. Find pending or overdue rent records
     const { data: rentRecords, error: rentError } = await supabaseAdmin
       .from('rent_records')
-      .select('*, tenant:tenants(id, user_id, full_name, phone, status), room:rooms(room_number)')
+      .select('*, tenant:tenants(id, user_id, full_name, phone, status, move_in_date), room:rooms(room_number)')
       .eq('pg_id', pg.id)
       .in('status', ['pending', 'overdue'])
       .order('due_date', { ascending: true });
@@ -100,14 +100,17 @@ export async function checkAndSendRentReminders(targetPgId?: string): Promise<{
       continue;
     }
 
-    // Filter for records that have reached or passed their due date
+    // Filter for records that have reached or passed their due date (first reminder goes on the completion day)
     const eligibleRecords = rentRecords.filter((record) => {
       const tenant = record.tenant as any;
       if (!tenant || tenant.status !== 'active') return false;
 
       const recordDueDate = record.due_date ? record.due_date.split('T')[0] : '';
-      const isDue = recordDueDate ? recordDueDate <= todayStr : currentDay >= rentReminderDay;
-      return isDue;
+      if (recordDueDate) {
+        // Sent on the completion date (recordDueDate === todayStr) or subsequently if overdue
+        return recordDueDate <= todayStr;
+      }
+      return currentDay >= rentReminderDay;
     });
 
     totalChecked += eligibleRecords.length;
@@ -170,6 +173,30 @@ export async function checkAndSendRentReminders(targetPgId?: string): Promise<{
       const formattedAmount = (record.total_due_paise / 100).toLocaleString('en-IN');
       const dueDateFormatted = formatDateDMY(record.due_date);
       const monthFormatted = formatMonthMY(record.month);
+      const recordDueDate = record.due_date ? record.due_date.split('T')[0] : '';
+      const isCompletionDay = recordDueDate === todayStr;
+
+      // Parse itemized breakdown for electricity info
+      let parsedNotes: any = {};
+      if (record.notes) {
+        try {
+          parsedNotes = JSON.parse(record.notes);
+        } catch {}
+      }
+
+      const electricityUnits = parsedNotes.electricity_units || 0;
+      const electricityAmountPaise = parsedNotes.electricity_amount_paise || 0;
+
+      let electricityNotice = '';
+      if (electricityUnits > 0) {
+        electricityNotice =
+          `⚡ *Electricity*: ${electricityUnits} units used (₹${(electricityAmountPaise / 100).toLocaleString('en-IN')})\n` +
+          `• Complete meter reading and units breakdown is visible in your *PG Resident App*.\n\n`;
+      } else {
+        electricityNotice =
+          `⚡ *Electricity Bill*: Your electricity meter reading will be recorded on your cycle date today, and the units consumed will automatically show in your *PG Resident App*.\n` +
+          `• You can check the app to view your updated units and bill breakdown.\n\n`;
+      }
 
       let paymentDetails = '';
       if (pg.upi_id) {
@@ -187,16 +214,22 @@ export async function checkAndSendRentReminders(targetPgId?: string): Promise<{
         paymentDetails += `📸 *Payment QR code is attached above. Scan & pay via any UPI app.*\n`;
       }
 
+      const greetingHeadline = isCompletionDay
+        ? `This is a friendly reminder that your monthly rent cycle for *${monthFormatted}* completes today (${dueDateFormatted}).\n\n`
+        : `This is a friendly reminder that your rent for *${monthFormatted}* is due (${dueDateFormatted}).\n\n`;
+
       const reminderMessage =
         `🔔 *${pg.name} — Rent Payment Reminder*\n\n` +
         `Dear *${tenant.full_name}*,\n\n` +
-        `This is a friendly reminder that your rent for *${monthFormatted}* is due.\n\n` +
+        greetingHeadline +
         `👤 *Tenant*: *${tenant.full_name}*\n` +
         `🏠 *Room*: ${room?.room_number || 'Assigned Room'}\n` +
         `💰 *Amount Due*: ₹${formattedAmount}\n` +
-        `📅 *Due Date*: ${dueDateFormatted}\n\n` +
+        `📅 *Cycle / Due Date*: ${dueDateFormatted}\n\n` +
+        electricityNotice +
         (paymentDetails ? `*Payment Details*:\n${paymentDetails}\n` : '') +
-        `After paying, enter your UTR / Reference ID in the resident portal so we can verify and mark it as paid.\n` +
+        `📱 *App & Verification*: You can view your bill & electric units directly in the resident portal. After paying, please upload your screenshot or enter the UTR ID in the app.\n` +
+        `Once verified, your official paid bill will automatically be sent to your WhatsApp.\n\n` +
         `_If you have already paid, kindly ignore this message._`;
 
       // Schedule staggered dispatch strictly bound to pg.id
