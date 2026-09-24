@@ -30,6 +30,9 @@ interface QueuedMessage {
   jid: string;
   text: string;
   imageBuffer?: Buffer | null;
+  documentBuffer?: Buffer | null;
+  fileName?: string | null;
+  mimetype?: string | null;
   resolve: () => void;
   reject: (err: Error) => void;
   enqueuedAt: number;
@@ -801,8 +804,20 @@ async function processSessionQueue(session: WhatsAppSession): Promise<void> {
         await session.sock.sendPresenceUpdate('paused', item.jid);
       } catch {}
 
-      console.log(`[WhatsApp Queue ${session.pgId}] Sending to ${item.jid} (${session.messageQueue.length} pending, hasImage: ${Boolean(item.imageBuffer)})`);
-      if (item.imageBuffer) {
+      console.log(`[WhatsApp Queue ${session.pgId}] Sending to ${item.jid} (${session.messageQueue.length} pending, hasDoc: ${Boolean(item.documentBuffer)}, hasImage: ${Boolean(item.imageBuffer)})`);
+      if (item.documentBuffer) {
+        try {
+          await session.sock.sendMessage(item.jid, {
+            document: item.documentBuffer,
+            mimetype: item.mimetype || 'application/pdf',
+            fileName: item.fileName || 'Invoice.pdf',
+            caption: item.text,
+          });
+        } catch (docErr: any) {
+          console.warn(`[WhatsApp Queue ${session.pgId}] Document failed, falling back to text:`, docErr.message);
+          await session.sock.sendMessage(item.jid, { text: item.text });
+        }
+      } else if (item.imageBuffer) {
         try {
           await session.sock.sendMessage(item.jid, {
             image: item.imageBuffer,
@@ -837,6 +852,9 @@ export interface SendWhatsAppOptions {
   pgId: string; // MANDATORY: Cross-tenant isolation requires strict PG binding
   purpose?: string; // e.g. 'PASSWORD_RESET_OTP', 'RENT_REMINDER', 'INVOICE'
   imageBuffer?: Buffer | null;
+  documentBuffer?: Buffer | null;
+  fileName?: string | null;
+  mimetype?: string | null;
 }
 
 /**
@@ -891,6 +909,9 @@ export async function sendWhatsAppMessage(
       jid,
       text,
       imageBuffer: options.imageBuffer || null,
+      documentBuffer: options.documentBuffer || null,
+      fileName: options.fileName || null,
+      mimetype: options.mimetype || null,
       resolve,
       reject,
       enqueuedAt: Date.now(),

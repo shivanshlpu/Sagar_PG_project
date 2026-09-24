@@ -143,6 +143,31 @@ router.post('/settings/banking', authorize('admin'), validate(updateBankingSchem
   }
 });
 
+// --- WhatsApp Message Templates ---
+// GET /settings/whatsapp-templates [Admin]
+router.get('/settings/whatsapp-templates', authorize('admin'), async (req: Request, res: Response) => {
+  try {
+    const data = await settingsService.getWhatsAppMessageTemplates(req.user!.pgId);
+    res.json({ success: true, data });
+  } catch (err) {
+    res.status(400).json({ success: false, error: (err as Error).message });
+  }
+});
+
+// PATCH /settings/whatsapp-templates [Admin]
+router.patch('/settings/whatsapp-templates', authorize('admin'), async (req: Request, res: Response) => {
+  try {
+    const data = await settingsService.updateWhatsAppMessageTemplates(
+      req.user!.pgId,
+      req.body,
+      { id: req.user!.id, email: req.user!.email }
+    );
+    res.json({ success: true, data });
+  } catch (err) {
+    res.status(400).json({ success: false, error: (err as Error).message });
+  }
+});
+
 export default router;
 
 

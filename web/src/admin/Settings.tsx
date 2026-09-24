@@ -36,6 +36,8 @@ import {
   Landmark,
   Upload,
   Building2,
+  MessageSquare,
+  FileText,
 } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 import { useLanguage } from '../context/LanguageContext';
@@ -72,12 +74,12 @@ export default function AdminSettings() {
   const { language, setLanguage, t } = useLanguage();
   const [searchParams, setSearchParams] = useSearchParams();
   const tabParam = searchParams.get('tab');
-  const activeTab: 'profile' | 'wifi' | 'whatsapp' | 'reminders' | 'billing' | 'banking' | 'appearance' | 'security' =
-    tabParam === 'wifi' || tabParam === 'whatsapp' || tabParam === 'reminders' || tabParam === 'billing' || tabParam === 'banking' || tabParam === 'appearance' || tabParam === 'security'
+  const activeTab: 'profile' | 'wifi' | 'whatsapp' | 'templates' | 'reminders' | 'billing' | 'banking' | 'appearance' | 'security' =
+    tabParam === 'wifi' || tabParam === 'whatsapp' || tabParam === 'templates' || tabParam === 'reminders' || tabParam === 'billing' || tabParam === 'banking' || tabParam === 'appearance' || tabParam === 'security'
       ? tabParam
       : 'profile';
 
-  const setActiveTab = React.useCallback((tab: 'profile' | 'wifi' | 'whatsapp' | 'reminders' | 'billing' | 'banking' | 'appearance' | 'security') => {
+  const setActiveTab = React.useCallback((tab: 'profile' | 'wifi' | 'whatsapp' | 'templates' | 'reminders' | 'billing' | 'banking' | 'appearance' | 'security') => {
     setSearchParams({ tab }, { replace: true });
   }, [setSearchParams]);
 
@@ -277,12 +279,86 @@ export default function AdminSettings() {
   const [pwdLoading, setPwdLoading] = React.useState(false);
   const [pwdSuccess, setPwdSuccess] = React.useState(false);
 
+  // --- WhatsApp Message Templates State ---
+  const DEFAULT_TEMPLATES = {
+    bill_verified_message: `🧾 *Payment Verified & Official Bill — {pg_name}*\nDear *{tenant_name}*,\nYour payment of *Rs. {amount}* for *{month}* has been verified & marked paid.\nYour official rent bill and receipt is attached as a PDF above.\n\nThank you!\n— Team {pg_name}`,
+    rent_reminder_message: `🔔 *Rent Due Reminder — {pg_name}*\nDear *{tenant_name}*,\nYour rent of *Rs. {amount}* for *{month}* is due on *{due_date}*.\nElectricity: *{units} units* (view details in app).\nPlease scan the QR code above or pay via UPI.\n\n— Team {pg_name}`,
+  };
+
+  const [waTemplates, setWaTemplates] = React.useState<{
+    bill_verified_message: string;
+    rent_reminder_message: string;
+  }>({
+    bill_verified_message: DEFAULT_TEMPLATES.bill_verified_message,
+    rent_reminder_message: DEFAULT_TEMPLATES.rent_reminder_message,
+  });
+  const [isSavingTemplates, setIsSavingTemplates] = React.useState(false);
+
+  async function loadWhatsAppTemplates() {
+    const res = await apiGet<{ bill_verified_message: string; rent_reminder_message: string }>('/settings/whatsapp-templates');
+    if (res.success && res.data) {
+      setWaTemplates({
+        bill_verified_message: res.data.bill_verified_message || DEFAULT_TEMPLATES.bill_verified_message,
+        rent_reminder_message: res.data.rent_reminder_message || DEFAULT_TEMPLATES.rent_reminder_message,
+      });
+    }
+  }
+
+  async function handleSaveWhatsAppTemplates() {
+    setIsSavingTemplates(true);
+    const res = await apiPatch<{ bill_verified_message: string; rent_reminder_message: string }>(
+      '/settings/whatsapp-templates',
+      waTemplates
+    );
+    if (res.success) {
+      showToast('WhatsApp message templates saved successfully!');
+      if (res.data) setWaTemplates(res.data);
+    } else {
+      showToast(res.error || 'Failed to save message templates', 'error');
+    }
+    setIsSavingTemplates(false);
+  }
+
+  function handleResetTemplate(type: 'bill_verified_message' | 'rent_reminder_message') {
+    setWaTemplates((prev) => ({
+      ...prev,
+      [type]: DEFAULT_TEMPLATES[type],
+    }));
+    showToast('Reset to recommended short template');
+  }
+
+  function insertTag(field: 'bill_verified_message' | 'rent_reminder_message', tag: string) {
+    setWaTemplates((prev) => ({
+      ...prev,
+      [field]: prev[field] ? `${prev[field]} ${tag}` : tag,
+    }));
+  }
+
+  function renderPreview(template: string) {
+    const sample: Record<string, string> = {
+      tenant_name: 'Rahul Sharma',
+      room_number: '204',
+      month: 'September 2026',
+      amount: '8,504.00',
+      due_date: '05/10/2026',
+      units: '42',
+      pg_name: pg?.name || 'Sagar PG Living',
+      upi_id: banking.upi_id || 'sagarpg@upi',
+    };
+    let out = template || '';
+    for (const [k, v] of Object.entries(sample)) {
+      out = out.replace(new RegExp(`\\{${k}\\}`, 'g'), v);
+    }
+    return out;
+  }
+
   React.useEffect(() => {
     loadWifiSettings();
     loadWhatsAppStatus();
     loadReminderSettings();
     loadBillingSettings();
     loadBankingSettings();
+    loadWhatsAppTemplates();
   }, []);
 
   // Poll WhatsApp status while in pairing mode or when looking at WhatsApp tab and not yet connected
@@ -843,6 +919,17 @@ export default function AdminSettings() {
                   : 'var(--color-text-muted)',
             }}
           />
+        </button>
+
+        <button
+          onClick={() => {
+            setActiveTab('templates');
+            loadWhatsAppTemplates();
+          }}
+          style={activeTab === 'templates' ? activeTabStyle : inactiveTabStyle}
+        >
+          <MessageSquare size={18} />
+          <span>Message Templates</span>
         </button>
 
         <button
@@ -1622,6 +1709,58 @@ export default function AdminSettings() {
           )}
 
           {/* Anti-Ban Best Practices Advisory */}
+          {/* Template Quick Jump Card */}
+          <div
+            style={{
+              padding: '16px 20px',
+              borderRadius: 'var(--radius-lg)',
+              backgroundColor: 'var(--color-bg-surface)',
+              border: '1px solid var(--color-border)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '16px',
+              flexWrap: 'wrap',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <div
+                style={{
+                  width: '36px',
+                  height: '36px',
+                  borderRadius: '8px',
+                  backgroundColor: 'rgba(14, 165, 233, 0.1)',
+                  color: 'var(--color-primary)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                }}
+              >
+                <MessageSquare size={18} />
+              </div>
+              <div>
+                <div style={{ fontWeight: 600, fontSize: 'var(--font-size-sm)' }}>
+                  Customize Automated Message Captions
+                </div>
+                <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
+                  Keep your verification messages short with attached PDF bills, and reminders with QR codes.
+                </div>
+              </div>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setActiveTab('templates');
+                loadWhatsAppTemplates();
+              }}
+            >
+              Configure Templates →
+            </Button>
+          </div>
+
+          {/* Anti-Ban Best Practices Advisory */}
           <div style={advisoryBoxStyle}>
             <div style={{ display: 'flex', gap: '10px' }}>
               <AlertCircle size={18} style={{ color: 'var(--color-warning)', flexShrink: 0, marginTop: '2px' }} />
@@ -1629,6 +1768,305 @@ export default function AdminSettings() {
                 <strong>WhatsApp Account Advisory:</strong> This integration uses Baileys multi-device protocol on your personal WhatsApp account. To prevent WhatsApp account restrictions, avoid broadcasting bulk unsolicited messages. Dues receipts and complaint replies sent to existing tenants carry minimal risk.
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* TAB: WHATSAPP MESSAGE TEMPLATES */}
+      {activeTab === 'templates' && (
+        <div style={{ maxWidth: '820px', display: 'grid', gap: '24px' }}>
+          {/* Header Info Banner */}
+          <div
+            style={{
+              padding: '16px 20px',
+              borderRadius: 'var(--radius-lg)',
+              backgroundColor: 'rgba(14, 165, 233, 0.08)',
+              border: '1px solid rgba(14, 165, 233, 0.25)',
+              display: 'flex',
+              alignItems: 'flex-start',
+              gap: '14px',
+            }}
+          >
+            <MessageSquare size={22} style={{ color: 'var(--color-primary)', flexShrink: 0, marginTop: '2px' }} />
+            <div style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-secondary)', lineHeight: 1.6 }}>
+              <strong style={{ color: 'var(--color-text-primary)' }}>Concise Automated Messaging:</strong> Keep your messages short, polite, and essential.
+              <ul style={{ margin: '6px 0 0 16px', padding: 0 }}>
+                <li><strong>Bill & Payment Verification:</strong> Official A4 <strong>PDF invoice/receipt is sent as an attachment</strong>. The message below acts as its short caption.</li>
+                <li><strong>Rent Due Reminders:</strong> Attached with your <strong>UPI QR code image</strong> so tenants can scan and pay immediately.</li>
+              </ul>
+            </div>
+          </div>
+
+          {/* Template 1: Verified Bill & Official Receipt */}
+          <Card padding="lg">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px', marginBottom: '14px' }}>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <FileText size={20} style={{ color: 'var(--color-primary)' }} />
+                  <h3 style={{ fontSize: 'var(--font-size-md)', fontWeight: 700, margin: 0 }}>
+                    1. Verified Bill & Receipt (PDF Document Caption)
+                  </h3>
+                </div>
+                <p style={{ color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-xs)', marginTop: '4px', margin: 0 }}>
+                  Sent automatically when you verify a tenant payment or click "Send Bill". Official PDF is attached above.
+                </p>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => handleResetTemplate('bill_verified_message')}
+                style={{ fontSize: '12px' }}
+              >
+                Reset to Default
+              </Button>
+            </div>
+
+            {/* Placeholder Chips */}
+            <div style={{ marginBottom: '10px' }}>
+              <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: '6px' }}>
+                CLICK TO INSERT VARIABLE:
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                {[
+                  { tag: '{tenant_name}', label: 'Tenant Name' },
+                  { tag: '{month}', label: 'Billing Month' },
+                  { tag: '{amount}', label: 'Amount' },
+                  { tag: '{room_number}', label: 'Room No' },
+                  { tag: '{pg_name}', label: 'PG Name' },
+                ].map((item) => (
+                  <button
+                    key={item.tag}
+                    type="button"
+                    onClick={() => insertTag('bill_verified_message', item.tag)}
+                    style={{
+                      padding: '4px 10px',
+                      borderRadius: '6px',
+                      border: '1px solid var(--color-border)',
+                      backgroundColor: 'var(--color-bg-surface-alt)',
+                      fontSize: '11px',
+                      fontWeight: 600,
+                      color: 'var(--color-primary)',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    +{item.label} <code style={{ opacity: 0.7 }}>{item.tag}</code>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Textarea */}
+            <textarea
+              rows={6}
+              value={waTemplates.bill_verified_message}
+              onChange={(e) => setWaTemplates((prev) => ({ ...prev, bill_verified_message: e.target.value }))}
+              placeholder="Enter short verified bill message..."
+              style={{
+                width: '100%',
+                padding: '12px',
+                borderRadius: 'var(--radius-md)',
+                border: '1px solid var(--color-border)',
+                backgroundColor: 'var(--color-bg-surface)',
+                color: 'var(--color-text-primary)',
+                fontFamily: 'monospace',
+                fontSize: '13px',
+                lineHeight: 1.5,
+                resize: 'vertical',
+                boxSizing: 'border-box',
+              }}
+            />
+
+            {/* Live WhatsApp Preview */}
+            <div style={{ marginTop: '14px', padding: '14px', borderRadius: 'var(--radius-md)', backgroundColor: '#e5ddd5', border: '1px solid #d1d7db' }}>
+              <div style={{ fontSize: '11px', fontWeight: 700, color: '#4b5563', marginBottom: '8px', letterSpacing: '0.05em' }}>
+                LIVE WHATSAPP PREVIEW:
+              </div>
+              <div style={{
+                backgroundColor: '#ffffff',
+                borderRadius: '8px',
+                padding: '10px 14px',
+                maxWidth: '420px',
+                boxShadow: '0 1px 2px rgba(0,0,0,0.15)',
+                color: '#111827',
+                fontSize: '13px',
+                lineHeight: 1.5,
+              }}>
+                {/* PDF Document Attachment Card Mock */}
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '10px',
+                  padding: '8px 12px',
+                  backgroundColor: '#f0f2f5',
+                  borderRadius: '6px',
+                  border: '1px solid #e2e8f0',
+                  marginBottom: '8px',
+                }}>
+                  <div style={{
+                    width: '34px',
+                    height: '38px',
+                    borderRadius: '4px',
+                    backgroundColor: '#ef4444',
+                    color: '#ffffff',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontWeight: 800,
+                    fontSize: '9px',
+                    flexShrink: 0,
+                  }}>
+                    PDF
+                  </div>
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <div style={{ fontWeight: 600, fontSize: '12px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      Bill-2026-09-Rahul_Sharma.pdf
+                    </div>
+                    <div style={{ fontSize: '10px', color: '#64748b' }}>
+                      1 Page • 128 KB
+                    </div>
+                  </div>
+                </div>
+
+                {/* Rendered Caption Text */}
+                <div style={{ whiteSpace: 'pre-wrap' }}>
+                  {renderPreview(waTemplates.bill_verified_message)}
+                </div>
+              </div>
+            </div>
+          </Card>
+
+          {/* Template 2: Rent Due Reminder */}
+          <Card padding="lg">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px', marginBottom: '14px' }}>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <QrCode size={20} style={{ color: 'var(--color-primary)' }} />
+                  <h3 style={{ fontSize: 'var(--font-size-md)', fontWeight: 700, margin: 0 }}>
+                    2. Rent Due Reminder (QR Code Image Caption)
+                  </h3>
+                </div>
+                <p style={{ color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-xs)', marginTop: '4px', margin: 0 }}>
+                  Sent to tenants on their rent cycle date. Your UPI payment QR code is attached above the message.
+                </p>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => handleResetTemplate('rent_reminder_message')}
+                style={{ fontSize: '12px' }}
+              >
+                Reset to Default
+              </Button>
+            </div>
+
+            {/* Placeholder Chips */}
+            <div style={{ marginBottom: '10px' }}>
+              <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: '6px' }}>
+                CLICK TO INSERT VARIABLE:
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                {[
+                  { tag: '{tenant_name}', label: 'Tenant Name' },
+                  { tag: '{month}', label: 'Month' },
+                  { tag: '{amount}', label: 'Amount' },
+                  { tag: '{due_date}', label: 'Due Date' },
+                  { tag: '{units}', label: 'Electricity Units' },
+                  { tag: '{room_number}', label: 'Room No' },
+                  { tag: '{pg_name}', label: 'PG Name' },
+                ].map((item) => (
+                  <button
+                    key={item.tag}
+                    type="button"
+                    onClick={() => insertTag('rent_reminder_message', item.tag)}
+                    style={{
+                      padding: '4px 10px',
+                      borderRadius: '6px',
+                      border: '1px solid var(--color-border)',
+                      backgroundColor: 'var(--color-bg-surface-alt)',
+                      fontSize: '11px',
+                      fontWeight: 600,
+                      color: 'var(--color-primary)',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    +{item.label} <code style={{ opacity: 0.7 }}>{item.tag}</code>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Textarea */}
+            <textarea
+              rows={6}
+              value={waTemplates.rent_reminder_message}
+              onChange={(e) => setWaTemplates((prev) => ({ ...prev, rent_reminder_message: e.target.value }))}
+              placeholder="Enter short reminder message..."
+              style={{
+                width: '100%',
+                padding: '12px',
+                borderRadius: 'var(--radius-md)',
+                border: '1px solid var(--color-border)',
+                backgroundColor: 'var(--color-bg-surface)',
+                color: 'var(--color-text-primary)',
+                fontFamily: 'monospace',
+                fontSize: '13px',
+                lineHeight: 1.5,
+                resize: 'vertical',
+                boxSizing: 'border-box',
+              }}
+            />
+
+            {/* Live WhatsApp Preview */}
+            <div style={{ marginTop: '14px', padding: '14px', borderRadius: 'var(--radius-md)', backgroundColor: '#e5ddd5', border: '1px solid #d1d7db' }}>
+              <div style={{ fontSize: '11px', fontWeight: 700, color: '#4b5563', marginBottom: '8px', letterSpacing: '0.05em' }}>
+                LIVE WHATSAPP PREVIEW:
+              </div>
+              <div style={{
+                backgroundColor: '#ffffff',
+                borderRadius: '8px',
+                padding: '10px 14px',
+                maxWidth: '420px',
+                boxShadow: '0 1px 2px rgba(0,0,0,0.15)',
+                color: '#111827',
+                fontSize: '13px',
+                lineHeight: 1.5,
+              }}>
+                {/* QR Code Image Mock */}
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '10px',
+                  padding: '8px 12px',
+                  backgroundColor: '#f8fafc',
+                  borderRadius: '6px',
+                  border: '1px dashed #0284c7',
+                  marginBottom: '8px',
+                }}>
+                  <QrCode size={28} style={{ color: '#0f2942', flexShrink: 0 }} />
+                  <div>
+                    <div style={{ fontWeight: 600, fontSize: '12px', color: '#0f2942' }}>
+                      📸 UPI QR Code Image Attached
+                    </div>
+                    <div style={{ fontSize: '10px', color: '#64748b' }}>
+                      Scan & Pay via GPay / PhonePe / Paytm / BHIM
+                    </div>
+                  </div>
+                </div>
+
+                {/* Rendered Caption Text */}
+                <div style={{ whiteSpace: 'pre-wrap' }}>
+                  {renderPreview(waTemplates.rent_reminder_message)}
+                </div>
+              </div>
+            </div>
+          </Card>
+
+          {/* Action Footer */}
+          <div style={{ display: 'flex', justifyContent: 'flex-start', gap: '12px' }}>
+            <Button onClick={handleSaveWhatsAppTemplates} isLoading={isSavingTemplates}>
+              Save Message Templates
+            </Button>
           </div>
         </div>
       )}

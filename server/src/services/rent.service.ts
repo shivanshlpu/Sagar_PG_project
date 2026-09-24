@@ -1,9 +1,10 @@
 import { supabaseAdmin } from '../config/supabase';
 import { logAudit } from './auditLog.service';
-import { getBillingSettings } from './settings.service';
-import { sendWhatsAppMessage, decodeBase64Image } from './whatsapp.service';
+import { getBillingSettings, getWhatsAppMessageTemplates, renderWhatsAppTemplate } from './settings.service';
+import { sendWhatsAppMessage } from './whatsapp.service';
 import { getPG } from './pg.service';
 import { formatDateDMY, formatMonthMY } from '../utils/date';
+import { generateRentInvoicePdf } from './invoicePdf.service';
 
 export function calculateTenantDueDate(month: string, moveInDate?: string | null, fallbackDay: number = 5): string {
   let day = fallbackDay;
@@ -591,21 +592,11 @@ export async function sendRentBillWhatsApp(pgId: string, rentRecordId: string) {
   if (!record.tenant?.phone) throw new Error('Tenant has no registered phone number');
 
   const pg = await getPG(pgId);
-
-  const { data: qrData } = await supabaseAdmin
-    .from('settings')
-    .select('value')
-    .eq('key', `payment_qr_${pgId}`)
-    .maybeSingle();
-
-  const paymentQrStr = qrData?.value ? (typeof qrData.value === 'string' ? qrData.value : (qrData.value.qr || qrData.value.url || null)) : null;
-  const qrBuffer = paymentQrStr ? decodeBase64Image(paymentQrStr) : (pg.logo_url ? decodeBase64Image(pg.logo_url) : null);
-
   const pgName = pg?.name || 'Sagar PG';
   const tenantName = (record.tenant as any)?.full_name || 'Resident';
   const roomNumber = (record.room as any)?.room_number ? `Room ${(record.room as any).room_number}` : 'N/A';
   const dueDateFormatted = formatDateDMY(record.due_date);
-  const invoiceNo = `INV-${record.month.replace('-', '')}-${record.id.slice(0, 6).toUpperCase()}`;
+  const monthFormatted = formatMonthMY(record.month);
 
   // Parse itemized breakdown from notes
   let notesObj: any = {};
@@ -623,78 +614,55 @@ export async function sendRentBillWhatsApp(pgId: string, rentRecordId: string) {
   const electricityUnits = notesObj.electricity_units ?? 0;
   const lateFeePaise = record.late_fee_paise || 0;
   const totalAmountPaise = record.total_due_paise || (baseRentPaise + maintenancePaise + electricityPaise + lateFeePaise);
-  const formattedTotal = `₹${(totalAmountPaise / 100).toLocaleString('en-IN')}`;
+  const formattedTotal = (totalAmountPaise / 100).toLocaleString('en-IN', { minimumFractionDigits: 2 });
 
-  const isPaid = record.status === 'paid';
-  const paidDateFormatted = record.paid_date ? formatDateDMY(record.paid_date) : formatDateDMY(new Date());
+  const isPaid = record.status === 'paid' || record.status === 'verified';
 
-  let breakdown = `• Monthly Rent: ₹${(baseRentPaise / 100).toLocaleString('en-IN')}\n`;
-  if (electricityPaise > 0 || electricityUnits > 0) {
-    breakdown += `• Electricity (${electricityUnits} units): ₹${(electricityPaise / 100).toLocaleString('en-IN')}\n`;
-  }
-  if (maintenancePaise > 0) {
-    breakdown += `• Maintenance Charges: ₹${(maintenancePaise / 100).toLocaleString('en-IN')}\n`;
-  }
-  if (lateFeePaise > 0) {
-    breakdown += `• Late Fee / Fine: ₹${(lateFeePaise / 100).toLocaleString('en-IN')}\n`;
-  }
+  // 1. Generate publication-quality PDF invoice attachment
+  const pdfBuffer = await generateRentInvoicePdf(pgId, { ...record, pg });
 
-  let paymentDetails = '';
-  if (!isPaid) {
-    if (pg?.upi_id) paymentDetails += `• UPI ID: *${pg.upi_id}*\n`;
-    if (pg?.account_number) {
-      paymentDetails += `• Bank: *${pg.bank_name || 'Bank'}*\n`;
-      paymentDetails += `• Account No: *${pg.account_number}*\n`;
-      paymentDetails += `• IFSC: *${pg.ifsc_code || 'N/A'}*\n`;
-      if (pg.account_holder_name) paymentDetails += `• Name: *${pg.account_holder_name}*\n`;
-    }
-    if (paymentQrStr) {
-      paymentDetails += `📸 *Payment QR code is attached above. Scan & pay via any UPI app.*\n`;
-    }
-  }
+  // 2. Load customizable message template
+  const templates = await getWhatsAppMessageTemplates(pgId);
+  const vars: Record<string, string | number> = {
+    tenant_name: tenantName,
+    room_number: roomNumber,
+    month: monthFormatted,
+    amount: formattedTotal,
+    due_date: dueDateFormatted,
+    units: electricityUnits,
+    pg_name: pgName,
+    upi_id: pg?.upi_id || '',
+  };
 
-  const billHeader = isPaid
-    ? `🧾 *OFFICIAL RENT BILL & RECEIPT — ${pgName.toUpperCase()}*`
-    : `📋 *RENT INVOICE — ${pgName.toUpperCase()}*`;
+  const shortMessage = renderWhatsAppTemplate(templates.bill_verified_message, vars);
+  const cleanFileName = `Bill-${record.month}-${tenantName.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`;
 
-  const statusSection = isPaid
-    ? `✅ *Status*: *VERIFIED & PAID*\n📅 *Paid On*: ${paidDateFormatted}\n`
-    : `⏳ *Status*: *${record.status.toUpperCase()}*\n📅 *Due Date*: ${dueDateFormatted}\n`;
-
-  const footerSection = isPaid
-    ? `━━━━━━━━━━━━━━━━━━━━\n` +
-      `✅ *Payment has been verified and confirmed by property management.*\n` +
-      `📱 This official bill is recorded and accessible anytime in your *PG Resident App*.\n`
-    : `━━━━━━━━━━━━━━━━━━━━\n` +
-      (paymentDetails ? `*Payment Details*:\n${paymentDetails}\n` : '') +
-      `📱 You can track your electricity units and payment history in the *PG Resident App*.\n`;
-
-  const invoiceMsg =
-    `${billHeader}\n` +
-    (pg.tagline ? `_${pg.tagline}_\n` : '') +
-    `━━━━━━━━━━━━━━━━━━━━\n` +
-    `Dear *${tenantName}*,\n\n` +
-    `Invoice: *${invoiceNo}*\n` +
-    `Billing Month: *${formatMonthMY(record.month)}*\n` +
-    `👤 *Tenant*: *${tenantName}*\n` +
-    `🏠 *Room*: *${roomNumber}*\n\n` +
-    `*Bill Breakdown*:\n${breakdown}` +
-    `━━━━━━━━━━━━━━━━━━━━\n` +
-    `💰 *TOTAL AMOUNT: ${formattedTotal}*\n` +
-    statusSection +
-    footerSection +
-    (pg.phone ? `📞 Contact: *${pg.phone}*\n` : '') +
-    (pg.owner_name ? `👤 Owner: *${pg.owner_name}*\n` : '') +
-    (pg.address ? `📍 Address: ${pg.address}\n` : '') +
-    `\nThank you for staying with us!\n` +
-    `*Team ${pgName}*`;
-
-  await sendWhatsAppMessage(record.tenant.phone, invoiceMsg, {
+  // 3. Dispatch official PDF document with short, essential message caption
+  await sendWhatsAppMessage(record.tenant.phone, shortMessage, {
     pgId: record.pg_id,
     purpose: isPaid ? 'PAYMENT_RECEIPT' : 'INVOICE',
-    imageBuffer: isPaid ? (pg.logo_url ? decodeBase64Image(pg.logo_url) : null) : qrBuffer,
+    documentBuffer: pdfBuffer,
+    fileName: cleanFileName,
+    mimetype: 'application/pdf',
   });
 
-  return { success: true, message: `Invoice sent to ${record.tenant.phone}` };
+  return { success: true, message: `Official PDF invoice sent to ${record.tenant.phone}` };
+}
+
+export async function getRentRecordPdf(pgId: string, rentRecordId: string, tenantId?: string): Promise<Buffer> {
+  const query = supabaseAdmin
+    .from('rent_records')
+    .select('*, tenant:tenants(full_name, phone), room:rooms(room_number)')
+    .eq('id', rentRecordId)
+    .eq('pg_id', pgId);
+
+  if (tenantId) {
+    query.eq('tenant_id', tenantId);
+  }
+
+  const { data: record, error } = await query.single();
+  if (error || !record) throw new Error('Rent record not found');
+
+  return generateRentInvoicePdf(pgId, record);
 }
 

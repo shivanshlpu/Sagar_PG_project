@@ -2,7 +2,7 @@ import { supabaseAdmin } from '../config/supabase';
 import { cache } from '../config/redis';
 import { sendWhatsAppMessage, decodeBase64Image, getWhatsAppStatus } from './whatsapp.service';
 import { createNotification } from './notifications.service';
-import { getReminderSettings } from './settings.service';
+import { getReminderSettings, getWhatsAppMessageTemplates, renderWhatsAppTemplate } from './settings.service';
 import { formatDateDMY, formatMonthMY } from '../utils/date';
 
 /**
@@ -173,8 +173,6 @@ export async function checkAndSendRentReminders(targetPgId?: string): Promise<{
       const formattedAmount = (record.total_due_paise / 100).toLocaleString('en-IN');
       const dueDateFormatted = formatDateDMY(record.due_date);
       const monthFormatted = formatMonthMY(record.month);
-      const recordDueDate = record.due_date ? record.due_date.split('T')[0] : '';
-      const isCompletionDay = recordDueDate === todayStr;
 
       // Parse itemized breakdown for electricity info
       let parsedNotes: any = {};
@@ -185,52 +183,20 @@ export async function checkAndSendRentReminders(targetPgId?: string): Promise<{
       }
 
       const electricityUnits = parsedNotes.electricity_units || 0;
-      const electricityAmountPaise = parsedNotes.electricity_amount_paise || 0;
 
-      let electricityNotice = '';
-      if (electricityUnits > 0) {
-        electricityNotice =
-          `⚡ *Electricity*: ${electricityUnits} units used (₹${(electricityAmountPaise / 100).toLocaleString('en-IN')})\n` +
-          `• Complete meter reading and units breakdown is visible in your *PG Resident App*.\n\n`;
-      } else {
-        electricityNotice =
-          `⚡ *Electricity Bill*: Your electricity meter reading will be recorded on your cycle date today, and the units consumed will automatically show in your *PG Resident App*.\n` +
-          `• You can check the app to view your updated units and bill breakdown.\n\n`;
-      }
+      const templates = await getWhatsAppMessageTemplates(pg.id);
+      const templateVars: Record<string, string | number> = {
+        tenant_name: tenant.full_name || 'Resident',
+        room_number: room?.room_number || 'N/A',
+        month: monthFormatted,
+        amount: formattedAmount,
+        due_date: dueDateFormatted,
+        units: electricityUnits,
+        pg_name: pg.name || 'Sagar PG',
+        upi_id: pg.upi_id || '',
+      };
 
-      let paymentDetails = '';
-      if (pg.upi_id) {
-        paymentDetails += `• UPI ID: *${pg.upi_id}*\n`;
-      }
-      if (pg.account_number) {
-        paymentDetails += `• Bank: *${pg.bank_name || 'Bank'}*\n`;
-        paymentDetails += `• Account No: *${pg.account_number}*\n`;
-        paymentDetails += `• IFSC: *${pg.ifsc_code || 'N/A'}*\n`;
-        if (pg.account_holder_name) {
-          paymentDetails += `• Name: *${pg.account_holder_name}*\n`;
-        }
-      }
-      if (qrBuffer) {
-        paymentDetails += `📸 *Payment QR code is attached above. Scan & pay via any UPI app.*\n`;
-      }
-
-      const greetingHeadline = isCompletionDay
-        ? `This is a friendly reminder that your monthly rent cycle for *${monthFormatted}* completes today (${dueDateFormatted}).\n\n`
-        : `This is a friendly reminder that your rent for *${monthFormatted}* is due (${dueDateFormatted}).\n\n`;
-
-      const reminderMessage =
-        `🔔 *${pg.name} — Rent Payment Reminder*\n\n` +
-        `Dear *${tenant.full_name}*,\n\n` +
-        greetingHeadline +
-        `👤 *Tenant*: *${tenant.full_name}*\n` +
-        `🏠 *Room*: ${room?.room_number || 'Assigned Room'}\n` +
-        `💰 *Amount Due*: ₹${formattedAmount}\n` +
-        `📅 *Cycle / Due Date*: ${dueDateFormatted}\n\n` +
-        electricityNotice +
-        (paymentDetails ? `*Payment Details*:\n${paymentDetails}\n` : '') +
-        `📱 *App & Verification*: You can view your bill & electric units directly in the resident portal. After paying, please upload your screenshot or enter the UTR ID in the app.\n` +
-        `Once verified, your official paid bill will automatically be sent to your WhatsApp.\n\n` +
-        `_If you have already paid, kindly ignore this message._`;
+      const reminderMessage = renderWhatsAppTemplate(templates.rent_reminder_message, templateVars);
 
       // Schedule staggered dispatch strictly bound to pg.id
       setTimeout(async () => {

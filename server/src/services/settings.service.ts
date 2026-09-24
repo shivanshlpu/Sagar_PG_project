@@ -367,3 +367,102 @@ export async function updateBankingSettings(
   return getBankingSettings(pgId);
 }
 
+export interface WhatsAppMessageTemplates {
+  bill_verified_message: string;
+  rent_reminder_message: string;
+}
+
+export const DEFAULT_WHATSAPP_TEMPLATES: WhatsAppMessageTemplates = {
+  bill_verified_message: `🧾 *Payment Verified & Official Bill — {pg_name}*
+Dear *{tenant_name}*,
+Your payment of *Rs. {amount}* for *{month}* has been verified & marked paid.
+Your official rent bill and receipt is attached as a PDF above.
+
+Thank you!
+— Team {pg_name}`,
+
+  rent_reminder_message: `🔔 *Rent Due Reminder — {pg_name}*
+Dear *{tenant_name}*,
+Your rent of *Rs. {amount}* for *{month}* is due on *{due_date}*.
+Electricity: *{units} units* (view details in app).
+Please scan the QR code above or pay via UPI.
+
+— Team {pg_name}`,
+};
+
+export async function getWhatsAppMessageTemplates(pgId: string): Promise<WhatsAppMessageTemplates> {
+  const { data, error } = await supabaseAdmin
+    .from('settings')
+    .select('value')
+    .eq('key', `whatsapp_templates_${pgId}`)
+    .maybeSingle();
+
+  if (error) {
+    console.error('getWhatsAppMessageTemplates error:', error);
+  }
+
+  if (data?.value && typeof data.value === 'object') {
+    return {
+      bill_verified_message:
+        typeof data.value.bill_verified_message === 'string' && data.value.bill_verified_message.trim()
+          ? data.value.bill_verified_message
+          : DEFAULT_WHATSAPP_TEMPLATES.bill_verified_message,
+      rent_reminder_message:
+        typeof data.value.rent_reminder_message === 'string' && data.value.rent_reminder_message.trim()
+          ? data.value.rent_reminder_message
+          : DEFAULT_WHATSAPP_TEMPLATES.rent_reminder_message,
+    };
+  }
+
+  return { ...DEFAULT_WHATSAPP_TEMPLATES };
+}
+
+export async function updateWhatsAppMessageTemplates(
+  pgId: string,
+  templates: Partial<WhatsAppMessageTemplates>,
+  actor: { id: string; email: string }
+): Promise<WhatsAppMessageTemplates> {
+  const current = await getWhatsAppMessageTemplates(pgId);
+  const updated: WhatsAppMessageTemplates = {
+    bill_verified_message:
+      templates.bill_verified_message !== undefined
+        ? (templates.bill_verified_message.trim() || DEFAULT_WHATSAPP_TEMPLATES.bill_verified_message)
+        : current.bill_verified_message,
+    rent_reminder_message:
+      templates.rent_reminder_message !== undefined
+        ? (templates.rent_reminder_message.trim() || DEFAULT_WHATSAPP_TEMPLATES.rent_reminder_message)
+        : current.rent_reminder_message,
+  };
+
+  const { error } = await supabaseAdmin
+    .from('settings')
+    .upsert({
+      key: `whatsapp_templates_${pgId}`,
+      value: updated,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'key' });
+
+  if (error) throw new Error(error.message);
+
+  await logAudit({
+    pgId,
+    actorId: actor.id,
+    actorEmail: actor.email,
+    action: 'UPDATE_WHATSAPP_TEMPLATES',
+    entityType: 'settings',
+    entityId: `whatsapp_templates_${pgId}`,
+    details: { ...updated },
+  });
+
+  return updated;
+}
+
+export function renderWhatsAppTemplate(template: string, vars: Record<string, string | number>): string {
+  let result = template;
+  for (const [key, value] of Object.entries(vars)) {
+    const regex = new RegExp(`\\{${key}\\}`, 'g');
+    result = result.replace(regex, String(value ?? ''));
+  }
+  return result;
+}
+

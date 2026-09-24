@@ -75,6 +75,19 @@ router.post(['/:id/send-bill', '/records/:id/send-bill'], authorize('admin'), as
   }
 });
 
+// GET /rent/:id/pdf, /rent/records/:id/pdf [Admin or Tenant self]
+router.get(['/:id/pdf', '/records/:id/pdf'], async (req: Request, res: Response) => {
+  try {
+    const tenantId = req.user!.role === 'tenant' ? req.user!.tenantId : undefined;
+    const pdfBuffer = await rentService.getRentRecordPdf(req.user!.pgId, req.params.id, tenantId);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="invoice-${req.params.id.slice(0, 8)}.pdf"`);
+    res.send(pdfBuffer);
+  } catch (err) {
+    res.status(404).json({ success: false, error: (err as Error).message });
+  }
+});
+
 // IMMUTABILITY: Reject DELETE on rent records
 router.delete(['/:id', '/records/:id'], (_req: Request, res: Response) => {
   res.status(405).json({

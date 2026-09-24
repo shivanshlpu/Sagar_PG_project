@@ -2,7 +2,9 @@ import { supabaseAdmin } from '../config/supabase';
 import { logAudit } from './auditLog.service';
 import { sendWhatsAppMessage } from './whatsapp.service';
 import { sendRentBillWhatsApp } from './rent.service';
-import { formatDateDMY } from '../utils/date';
+import { formatDateDMY, formatMonthMY } from '../utils/date';
+import { generateRentInvoicePdf } from './invoicePdf.service';
+import { getWhatsAppMessageTemplates, renderWhatsAppTemplate } from './settings.service';
 import crypto from 'crypto';
 
 export async function listPayments(
@@ -296,32 +298,58 @@ export async function sendPaymentReceiptWhatsApp(pgId: string, paymentId: string
 
   const { data: pg } = await supabaseAdmin
     .from('pgs')
-    .select('name, address, phone')
+    .select('id, name, address, phone, email, owner_name, tagline, upi_id, bank_name, account_number, ifsc_code, account_holder_name, logo_url')
     .eq('id', pgId)
     .single();
 
   const pgName = pg?.name || 'Sagar PG';
   const tenantName = payment.tenant.full_name || 'Resident';
-  const roomNumber = (payment.tenant as any).room?.room_number ? `Room ${(payment.tenant as any).room.room_number}` : 'N/A';
-  const amountFormatted = `₹${(payment.amount_paise / 100).toLocaleString('en-IN')}`;
-  const receiptNo = `REC-${payment.id.slice(0, 8).toUpperCase()}`;
+  const roomNumber = (payment.tenant as any).room?.room_number || 'N/A';
   const dateFormatted = formatDateDMY(payment.verified_at || payment.created_at);
+  const payMonth = payment.created_at ? payment.created_at.slice(0, 7) : new Date().toISOString().slice(0, 7);
 
-  const receiptMsg =
-    `🧾 *PAYMENT RECEIPT — ${pgName.toUpperCase()}*\n` +
-    `━━━━━━━━━━━━━━━━━━━━\n` +
-    `Dear *${tenantName}*,\n\n` +
-    `Receipt No: *${receiptNo}*\n` +
-    `Date: *${dateFormatted}*\n` +
-    `👤 *Tenant*: *${tenantName}*\n` +
-    `🏠 *Room*: *${roomNumber}*\n\n` +
-    `💰 *Amount Paid: ${amountFormatted}*\n` +
-    `Payment Method: *${(payment.payment_method || 'UPI').toUpperCase()}*\n` +
-    `Status: *✅ VERIFIED & ACCEPTED*\n` +
-    `━━━━━━━━━━━━━━━━━━━━\n` +
-    `Thank you! This is an immutable digital receipt recorded by ${pgName}.`;
+  const synthRecord = {
+    id: payment.id,
+    month: payMonth,
+    rent_amount_paise: payment.amount_paise,
+    late_fee_paise: 0,
+    total_due_paise: payment.amount_paise,
+    status: 'paid',
+    due_date: payment.created_at || new Date().toISOString(),
+    paid_date: payment.verified_at || payment.created_at,
+    notes: JSON.stringify({
+      base_rent_paise: payment.amount_paise,
+      utr: payment.utr,
+      pg_snapshot: pg,
+    }),
+    tenant: payment.tenant,
+    room: (payment.tenant as any).room,
+    pg,
+  };
 
-  await sendWhatsAppMessage(payment.tenant.phone, receiptMsg, { pgId: payment.pg_id });
+  const pdfBuffer = await generateRentInvoicePdf(pgId, synthRecord);
+  const templates = await getWhatsAppMessageTemplates(pgId);
+  const vars: Record<string, string | number> = {
+    tenant_name: tenantName,
+    room_number: roomNumber,
+    month: formatMonthMY(payMonth),
+    amount: (payment.amount_paise / 100).toLocaleString('en-IN', { minimumFractionDigits: 2 }),
+    due_date: dateFormatted,
+    units: 0,
+    pg_name: pgName,
+    upi_id: pg?.upi_id || '',
+  };
+
+  const shortMessage = renderWhatsAppTemplate(templates.bill_verified_message, vars);
+
+  await sendWhatsAppMessage(payment.tenant.phone, shortMessage, {
+    pgId: payment.pg_id,
+    purpose: 'PAYMENT_RECEIPT',
+    documentBuffer: pdfBuffer,
+    fileName: `Receipt-${payment.id.slice(0, 8)}.pdf`,
+    mimetype: 'application/pdf',
+  });
+
   return { success: true, message: `Receipt sent to ${payment.tenant.phone}` };
 }
 
