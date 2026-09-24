@@ -23,6 +23,7 @@ import {
   CheckCircle2,
   DoorOpen,
   FileText,
+  Download,
 } from 'lucide-react';
 import { RentInvoiceModal, type RentInvoiceData } from '../components/billing/RentInvoiceModal';
 
@@ -123,6 +124,7 @@ export default function TenantDashboard() {
   const [isLoadingBanking, setIsLoadingBanking] = React.useState(false);
   const [copiedField, setCopiedField] = React.useState<string | null>(null);
 
+  const [senderName, setSenderName] = React.useState('');
   const [utrId, setUtrId] = React.useState('');
   const [paymentMethod, setPaymentMethod] = React.useState<'upi' | 'bank_transfer' | 'cash'>('upi');
   const [paymentAmount, setPaymentAmount] = React.useState<number | string>('');
@@ -210,6 +212,9 @@ export default function TenantDashboard() {
   async function openPaymentModal() {
     setShowPaymentModal(true);
     setPaymentAmount(data?.currentDue ? (data.currentDue.total_due_paise / 100).toString() : '0');
+    if (!senderName && data?.tenant?.full_name) {
+      setSenderName(data.tenant.full_name);
+    }
     if (!bankingDetails) {
       setIsLoadingBanking(true);
       const res = await apiGet<{
@@ -259,6 +264,10 @@ export default function TenantDashboard() {
 
   async function handleSubmitPayment(e: React.FormEvent) {
     e.preventDefault();
+    if (!senderName.trim()) {
+      showToast('Please enter the Sender / Account Holder Name', 'error');
+      return;
+    }
     if (!utrId.trim()) {
       showToast('Please enter your 12-digit UTR or Reference ID', 'error');
       return;
@@ -275,6 +284,7 @@ export default function TenantDashboard() {
       amount_paise: Math.round(numAmt * 100),
       payment_method: paymentMethod,
       utr_id: utrId.trim(),
+      sender_name: senderName.trim(),
       notes: paymentNotes.trim() || null,
     });
 
@@ -282,6 +292,7 @@ export default function TenantDashboard() {
       showToast('Payment submitted successfully! Admin will verify and mark as paid.');
       setShowPaymentModal(false);
       setUtrId('');
+      setSenderName('');
       setPaymentNotes('');
       await loadBillingSummary();
     } else {
@@ -559,11 +570,14 @@ export default function TenantDashboard() {
                     <div style={{ fontSize: 'var(--font-size-xs)', color: '#78350F', marginTop: '2px' }}>
                       Amount: {formatCurrency(pendingPayment.amount_paise)} •{' '}
                       {(() => {
-                        const { refId, extraNotes } = extractReferenceId(pendingPayment.notes);
-                        if (refId) {
-                          return <span style={{ fontWeight: 700, backgroundColor: '#FDE68A', padding: '2px 6px', borderRadius: '4px' }}>Ref: {refId}</span>;
-                        }
-                        return extraNotes || `Submitted on ${new Date(pendingPayment.created_at).toLocaleDateString('en-IN')}`;
+                        const { refId, senderName, extraNotes } = extractReferenceId(pendingPayment.notes);
+                        return (
+                          <span>
+                            {refId && <span style={{ fontWeight: 700, backgroundColor: '#FDE68A', padding: '2px 6px', borderRadius: '4px', color: '#92400E' }}>UTR: {refId}</span>}
+                            {senderName && <span style={{ marginLeft: '6px', fontWeight: 600 }}>• Sender: {senderName}</span>}
+                            {!refId && !senderName && (extraNotes || `Submitted on ${new Date(pendingPayment.created_at).toLocaleDateString('en-IN')}`)}
+                          </span>
+                        );
                       })()}
                     </div>
                   </div>
@@ -739,7 +753,7 @@ export default function TenantDashboard() {
               </thead>
               <tbody>
                 {data.payments.map((p) => {
-                  const { refId, extraNotes } = extractReferenceId(p.notes);
+                  const { refId, senderName, extraNotes } = extractReferenceId(p.notes);
                   return (
                     <tr key={p.id}>
                       <td style={tdStyle}>{new Date(p.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</td>
@@ -748,13 +762,20 @@ export default function TenantDashboard() {
                       </td>
                       <td style={{ ...tdStyle, textTransform: 'uppercase' }}>{p.payment_method}</td>
                       <td style={{ ...tdStyle, fontFamily: 'monospace', fontSize: 'var(--font-size-xs)' }}>
-                        {refId ? (
+                        {refId || senderName ? (
                           <div>
-                            <span style={{ backgroundColor: 'var(--color-bg-surface-alt)', padding: '3px 8px', borderRadius: '4px', border: '1px solid var(--color-border)', fontWeight: 600, color: 'var(--color-text-primary)' }}>
-                              {refId}
-                            </span>
+                            {refId && (
+                              <span style={{ backgroundColor: 'var(--color-bg-surface-alt)', padding: '3px 8px', borderRadius: '4px', border: '1px solid var(--color-border)', fontWeight: 600, color: 'var(--color-text-primary)' }}>
+                                {refId}
+                              </span>
+                            )}
+                            {senderName && (
+                              <div style={{ fontSize: '11px', color: 'var(--color-primary)', fontWeight: 600, marginTop: '2px', fontFamily: 'inherit' }}>
+                                Sender: {senderName}
+                              </div>
+                            )}
                             {extraNotes && (
-                              <div style={{ fontSize: '11px', color: 'var(--color-text-muted)', marginTop: '2px' }}>
+                              <div style={{ fontSize: '11px', color: 'var(--color-text-muted)', marginTop: '2px', fontFamily: 'inherit' }}>
                                 {extraNotes}
                               </div>
                             )}
@@ -833,121 +854,252 @@ export default function TenantDashboard() {
 
             {/* Step 1: PG Banking Details & QR Code */}
             <div>
-              <h3 style={{ fontSize: 'var(--font-size-sm)', fontWeight: 700, textTransform: 'uppercase', color: 'var(--color-text-secondary)', letterSpacing: '0.5px', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <h3 style={{
+                fontSize: 'var(--font-size-sm)',
+                fontWeight: 700,
+                textTransform: 'uppercase',
+                color: 'var(--color-text-secondary)',
+                letterSpacing: '0.5px',
+                marginBottom: '12px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+              }}>
                 <QrCode size={16} style={{ color: 'var(--color-primary)' }} />
                 <span>Step 1: Scan QR or Transfer via UPI / Bank</span>
               </h3>
 
               {isLoadingBanking ? (
-                <div className="skeleton" style={{ height: '140px', borderRadius: 'var(--radius-md)' }} />
+                <div className="skeleton" style={{ height: '180px', borderRadius: 'var(--radius-md)' }} />
               ) : (
-                <div style={{
-                  display: 'grid',
-                  gridTemplateColumns: bankingDetails?.payment_qr ? 'auto 1fr' : '1fr',
-                  gap: '16px',
-                  padding: '16px',
-                  backgroundColor: 'var(--color-bg-surface)',
-                  borderRadius: 'var(--radius-md)',
-                  border: '1px solid var(--color-border)',
-                  alignItems: 'center',
-                }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                  {/* Dedicated, Prominent, Centered QR Code Card */}
                   {bankingDetails?.payment_qr && (
-                    <div style={{ textAlign: 'center', padding: '8px', backgroundColor: '#ffffff', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)' }}>
-                      <img
-                        src={bankingDetails.payment_qr}
-                        alt="Payment QR Code"
-                        style={{ width: '160px', height: '160px', objectFit: 'contain', display: 'block' }}
-                      />
-                      <span style={{ fontSize: '10px', color: '#64748B', fontWeight: 600, display: 'block', marginTop: '4px' }}>
-                        Scan via GPay / PhonePe / Paytm
-                      </span>
-                    </div>
-                  )}
-
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                  {bankingDetails?.upi_id && (
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', backgroundColor: 'var(--color-bg-surface-alt)', borderRadius: 'var(--radius-sm)' }}>
-                      <div>
-                        <span style={{ fontSize: '11px', color: 'var(--color-text-muted)', display: 'block' }}>UPI ID</span>
-                        <code style={{ fontSize: 'var(--font-size-sm)', fontWeight: 700, color: 'var(--color-primary)' }}>
-                          {bankingDetails.upi_id}
-                        </code>
+                    <div style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      padding: '18px 16px',
+                      backgroundColor: '#ffffff',
+                      borderRadius: 'var(--radius-lg, 12px)',
+                      border: '1.5px solid var(--color-border)',
+                      boxShadow: '0 4px 12px rgba(0, 0, 0, 0.05)',
+                      textAlign: 'center',
+                    }}>
+                      <div style={{
+                        padding: '12px',
+                        backgroundColor: '#ffffff',
+                        borderRadius: 'var(--radius-md)',
+                        border: '1px solid #E2E8F0',
+                        boxShadow: '0 2px 6px rgba(0, 0, 0, 0.03)',
+                        display: 'inline-flex',
+                        justifyContent: 'center',
+                        alignItems: 'center',
+                      }}>
+                        <img
+                          src={bankingDetails.payment_qr}
+                          alt="PG Payment QR Code"
+                          style={{
+                            width: '210px',
+                            height: '210px',
+                            maxWidth: '100%',
+                            objectFit: 'contain',
+                            display: 'block',
+                          }}
+                        />
                       </div>
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        onClick={() => copyToClipboard(bankingDetails.upi_id, 'UPI ID')}
-                        style={{ padding: '4px 10px' }}
-                      >
-                        {copiedField === 'UPI ID' ? <Check size={14} style={{ color: 'var(--color-success)' }} /> : <Copy size={14} />}
-                        <span>{copiedField === 'UPI ID' ? 'Copied' : 'Copy'}</span>
-                      </Button>
-                    </div>
-                  )}
-
-                  {bankingDetails?.account_number && (
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', backgroundColor: 'var(--color-bg-surface-alt)', borderRadius: 'var(--radius-sm)' }}>
-                      <div>
-                        <span style={{ fontSize: '11px', color: 'var(--color-text-muted)', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                          <Landmark size={12} /> Bank Account ({bankingDetails.bank_name || 'Bank'})
+                      
+                      <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '3px' }}>
+                        <span style={{ fontSize: 'var(--font-size-sm)', fontWeight: 700, color: 'var(--color-text-primary)' }}>
+                          Scan & Pay via any UPI App
                         </span>
-                        <code style={{ fontSize: 'var(--font-size-sm)', fontWeight: 700 }}>
-                          {bankingDetails.account_number}
-                        </code>
+                        <span style={{ fontSize: '11px', color: 'var(--color-text-muted)', fontWeight: 500 }}>
+                          Google Pay • PhonePe • Paytm • BHIM • CRED
+                        </span>
+                        <a
+                          href={bankingDetails.payment_qr}
+                          download="pg-payment-qr.png"
+                          target="_blank"
+                          rel="noreferrer"
+                          style={{
+                            marginTop: '8px',
+                            fontSize: '12px',
+                            color: 'var(--color-primary)',
+                            textDecoration: 'none',
+                            fontWeight: 600,
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '5px',
+                            padding: '4px 12px',
+                            borderRadius: 'var(--radius-sm)',
+                            backgroundColor: 'var(--color-bg-surface-alt)',
+                            border: '1px solid var(--color-border)',
+                          }}
+                        >
+                          <Download size={13} /> Save / Open QR Image
+                        </a>
                       </div>
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        onClick={() => copyToClipboard(bankingDetails.account_number, 'Account Number')}
-                        style={{ padding: '4px 10px' }}
-                      >
-                        {copiedField === 'Account Number' ? <Check size={14} style={{ color: 'var(--color-success)' }} /> : <Copy size={14} />}
-                        <span>{copiedField === 'Account Number' ? 'Copied' : 'Copy'}</span>
-                      </Button>
                     </div>
                   )}
 
-                  {bankingDetails?.ifsc_code && (
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', backgroundColor: 'var(--color-bg-surface-alt)', borderRadius: 'var(--radius-sm)' }}>
-                      <div>
-                        <span style={{ fontSize: '11px', color: 'var(--color-text-muted)', display: 'block' }}>IFSC Code</span>
-                        <code style={{ fontSize: 'var(--font-size-sm)', fontWeight: 700 }}>
-                          {bankingDetails.ifsc_code}
-                        </code>
+                  {/* Quick-Copy Bank / UPI Details */}
+                  <div style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '10px',
+                    padding: '14px',
+                    backgroundColor: 'var(--color-bg-surface)',
+                    borderRadius: 'var(--radius-md)',
+                    border: '1px solid var(--color-border)',
+                  }}>
+                    {bankingDetails?.upi_id && (
+                      <div style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        padding: '10px 12px',
+                        backgroundColor: 'rgba(99, 102, 241, 0.05)',
+                        border: '1px solid rgba(99, 102, 241, 0.2)',
+                        borderRadius: 'var(--radius-sm)',
+                        flexWrap: 'wrap',
+                        gap: '8px',
+                      }}>
+                        <div>
+                          <span style={{ fontSize: '11px', color: 'var(--color-text-secondary)', display: 'block', fontWeight: 600 }}>
+                            UPI ID (Direct Transfer)
+                          </span>
+                          <code style={{ fontSize: 'var(--font-size-sm)', fontWeight: 700, color: 'var(--color-primary)' }}>
+                            {bankingDetails.upi_id}
+                          </code>
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          onClick={() => copyToClipboard(bankingDetails.upi_id, 'UPI ID')}
+                          style={{ padding: '4px 12px' }}
+                        >
+                          {copiedField === 'UPI ID' ? <Check size={14} style={{ color: 'var(--color-success)' }} /> : <Copy size={14} />}
+                          <span>{copiedField === 'UPI ID' ? 'Copied' : 'Copy'}</span>
+                        </Button>
                       </div>
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        onClick={() => copyToClipboard(bankingDetails.ifsc_code, 'IFSC Code')}
-                        style={{ padding: '4px 10px' }}
-                      >
-                        {copiedField === 'IFSC Code' ? <Check size={14} style={{ color: 'var(--color-success)' }} /> : <Copy size={14} />}
-                        <span>{copiedField === 'IFSC Code' ? 'Copied' : 'Copy'}</span>
-                      </Button>
-                    </div>
-                  )}
+                    )}
 
-                  {bankingDetails?.account_holder_name && (
-                    <div style={{ padding: '6px 12px', fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
-                      Beneficiary: <strong>{bankingDetails.account_holder_name}</strong>
-                    </div>
-                  )}
+                    {bankingDetails?.account_number && (
+                      <div style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        padding: '10px 12px',
+                        backgroundColor: 'var(--color-bg-surface-alt)',
+                        borderRadius: 'var(--radius-sm)',
+                        flexWrap: 'wrap',
+                        gap: '8px',
+                      }}>
+                        <div>
+                          <span style={{ fontSize: '11px', color: 'var(--color-text-muted)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <Landmark size={12} /> Bank Account ({bankingDetails.bank_name || 'Bank'})
+                          </span>
+                          <code style={{ fontSize: 'var(--font-size-sm)', fontWeight: 700 }}>
+                            {bankingDetails.account_number}
+                          </code>
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          onClick={() => copyToClipboard(bankingDetails.account_number, 'Account Number')}
+                          style={{ padding: '4px 12px' }}
+                        >
+                          {copiedField === 'Account Number' ? <Check size={14} style={{ color: 'var(--color-success)' }} /> : <Copy size={14} />}
+                          <span>{copiedField === 'Account Number' ? 'Copied' : 'Copy'}</span>
+                        </Button>
+                      </div>
+                    )}
 
-                  {!bankingDetails?.upi_id && !bankingDetails?.account_number && !bankingDetails?.payment_qr && (
-                    <div style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-secondary)', padding: '8px' }}>
-                      Contact administration for direct payment instructions.
-                    </div>
-                  )}
+                    {bankingDetails?.ifsc_code && (
+                      <div style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        padding: '10px 12px',
+                        backgroundColor: 'var(--color-bg-surface-alt)',
+                        borderRadius: 'var(--radius-sm)',
+                        flexWrap: 'wrap',
+                        gap: '8px',
+                      }}>
+                        <div>
+                          <span style={{ fontSize: '11px', color: 'var(--color-text-muted)', display: 'block' }}>IFSC Code</span>
+                          <code style={{ fontSize: 'var(--font-size-sm)', fontWeight: 700 }}>
+                            {bankingDetails.ifsc_code}
+                          </code>
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          onClick={() => copyToClipboard(bankingDetails.ifsc_code, 'IFSC Code')}
+                          style={{ padding: '4px 12px' }}
+                        >
+                          {copiedField === 'IFSC Code' ? <Check size={14} style={{ color: 'var(--color-success)' }} /> : <Copy size={14} />}
+                          <span>{copiedField === 'IFSC Code' ? 'Copied' : 'Copy'}</span>
+                        </Button>
+                      </div>
+                    )}
+
+                    {bankingDetails?.account_holder_name && (
+                      <div style={{ padding: '4px 8px', fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
+                        Beneficiary: <strong>{bankingDetails.account_holder_name}</strong>
+                      </div>
+                    )}
+
+                    {!bankingDetails?.upi_id && !bankingDetails?.account_number && !bankingDetails?.payment_qr && (
+                      <div style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-secondary)', padding: '8px' }}>
+                        Contact administration for direct payment instructions.
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
             </div>
 
-            {/* Step 2: Enter UTR & Submit */}
+            {/* Step 2: Enter Sender Name, UTR & Submit */}
             <form onSubmit={handleSubmitPayment} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-              <h3 style={{ fontSize: 'var(--font-size-sm)', fontWeight: 700, textTransform: 'uppercase', color: 'var(--color-text-secondary)', letterSpacing: '0.5px', margin: '4px 0 0' }}>
-                Step 2: Enter UTR / Reference ID & Submit
+              <h3 style={{
+                fontSize: 'var(--font-size-sm)',
+                fontWeight: 700,
+                textTransform: 'uppercase',
+                color: 'var(--color-text-secondary)',
+                letterSpacing: '0.5px',
+                margin: '6px 0 0',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+              }}>
+                <ShieldCheck size={16} style={{ color: 'var(--color-primary)' }} />
+                <span>Step 2: Enter Sender Name, UTR & Submit</span>
               </h3>
+
+              <div style={{
+                padding: '10px 12px',
+                backgroundColor: 'rgba(99, 102, 241, 0.06)',
+                border: '1px solid rgba(99, 102, 241, 0.18)',
+                borderRadius: 'var(--radius-sm)',
+                fontSize: '11px',
+                color: 'var(--color-text-secondary)',
+              }}>
+                <strong style={{ color: 'var(--color-primary)' }}>Important for Verification:</strong> Both <strong>Sender Name</strong> and <strong>12-digit UTR</strong> are required so the PG manager can verify the credit against their bank statement.
+              </div>
+
+              <FormField label="Sender / Account Holder Name" required>
+                <Input
+                  placeholder="e.g. Rahul Sharma (Name on your Bank / UPI account)"
+                  value={senderName}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSenderName(e.target.value)}
+                  required
+                />
+                <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)', marginTop: '4px' }}>
+                  Enter the exact name of the account holder whose UPI app or bank account was used to pay.
+                </span>
+              </FormField>
 
               <FormField label="UTR / Transaction Reference ID" required>
                 <Input
@@ -955,7 +1107,6 @@ export default function TenantDashboard() {
                   value={utrId}
                   onChange={(e: React.ChangeEvent<HTMLInputElement>) => setUtrId(e.target.value)}
                   required
-                  autoFocus
                 />
                 <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)', marginTop: '4px' }}>
                   You will find this 12-digit reference number in Google Pay, PhonePe, Paytm, or your bank transaction receipt.

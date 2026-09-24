@@ -183,6 +183,7 @@ export const submitPaymentSchema = z.object({
   notes: z.string().max(1000).nullable().optional(),
   utr_id: z.string().max(100).nullable().optional(),
   reference_id: z.string().max(100).nullable().optional(),
+  sender_name: z.string().max(200).nullable().optional(),
 }).strict();
 
 export const verifyPaymentSchema = z.object({

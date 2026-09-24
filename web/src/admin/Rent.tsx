@@ -61,9 +61,11 @@ export interface RentTrackingItem {
     amount_paise: number;
     payment_method: string;
     utr_id: string | null;
+    sender_name?: string | null;
     screenshot_path: string | null;
     status: string;
     created_at: string;
+    notes?: string | null;
   } | null;
 }
 
@@ -409,19 +411,31 @@ export default function AdminRent() {
         }
         if (r.status === 'PAYMENT_SUBMITTED') {
           return (
-            <span style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '4px',
-              padding: '3px 8px',
-              borderRadius: 'var(--radius-sm)',
-              fontSize: 'var(--font-size-xs)',
-              fontWeight: 600,
-              backgroundColor: 'rgba(147, 51, 234, 0.12)',
-              color: '#7c3aed',
-            }}>
-              <ShieldAlert size={13} /> Verification Pending
-            </span>
+            <div>
+              <span style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '4px',
+                padding: '3px 8px',
+                borderRadius: 'var(--radius-sm)',
+                fontSize: 'var(--font-size-xs)',
+                fontWeight: 600,
+                backgroundColor: 'rgba(147, 51, 234, 0.12)',
+                color: '#7c3aed',
+              }}>
+                <ShieldAlert size={13} /> Verification Pending
+              </span>
+              {r.payment?.utr_id && (
+                <div style={{ fontSize: '10px', color: '#7c3aed', fontFamily: 'monospace', fontWeight: 600, marginTop: '2px' }}>
+                  UTR: {r.payment.utr_id}
+                </div>
+              )}
+              {r.payment?.sender_name && (
+                <div style={{ fontSize: '10px', color: 'var(--color-text-secondary)', marginTop: '1px' }}>
+                  Sender: {r.payment.sender_name}
+                </div>
+              )}
+            </div>
           );
         }
         if (r.status === 'DUE_TODAY') {
@@ -1052,10 +1066,25 @@ export default function AdminRent() {
               </span>
             </div>
 
-            {/* UTR Note if submitted */}
-            {item.payment?.utr_id && (
-              <div style={{ fontSize: '11px', color: '#7c3aed', fontWeight: 600 }}>
-                Submitted UTR: <span style={{ fontFamily: 'monospace' }}>{item.payment.utr_id}</span>
+            {/* UTR & Sender Note if submitted */}
+            {(item.payment?.utr_id || item.payment?.sender_name) && (
+              <div style={{
+                fontSize: '11px',
+                color: '#7c3aed',
+                fontWeight: 600,
+                backgroundColor: 'rgba(124, 58, 237, 0.08)',
+                padding: '6px 10px',
+                borderRadius: 'var(--radius-sm)',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '2px',
+              }}>
+                {item.payment.utr_id && (
+                  <div>Submitted UTR: <span style={{ fontFamily: 'monospace', fontWeight: 700 }}>{item.payment.utr_id}</span></div>
+                )}
+                {item.payment.sender_name && (
+                  <div>Sender: <span style={{ fontWeight: 700, color: 'var(--color-text-primary)' }}>{item.payment.sender_name}</span></div>
+                )}
               </div>
             )}
 
@@ -1228,26 +1257,51 @@ export default function AdminRent() {
               border: '1px solid var(--color-border)',
               display: 'flex',
               flexDirection: 'column',
-              gap: '8px',
+              gap: '10px',
               fontSize: 'var(--font-size-xs)',
               marginBottom: '16px',
             }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span style={{ color: 'var(--color-text-secondary)' }}>Submitted Amount:</span>
                 <strong style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-primary)' }}>
                   {verifyingItem.payment?.amount_paise ? formatCurrency(verifyingItem.payment.amount_paise) : formatCurrency(verifyingItem.total_due_paise)}
                 </strong>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: 'var(--color-text-secondary)' }}>UTR / Transaction ID:</span>
-                <strong style={{ fontFamily: 'monospace', fontSize: '13px', color: '#7c3aed' }}>
-                  {verifyingItem.payment?.utr_id || 'Not specified'}
-                </strong>
+
+              {/* Highlighted Sender Name & UTR Box for Fast Verification */}
+              <div style={{
+                backgroundColor: 'rgba(124, 58, 237, 0.07)',
+                border: '1px solid rgba(124, 58, 237, 0.25)',
+                borderRadius: 'var(--radius-sm)',
+                padding: '10px 12px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '8px',
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ color: 'var(--color-text-secondary)', fontWeight: 600 }}>Sender / Account Name:</span>
+                  <strong style={{ fontSize: '13px', color: 'var(--color-text-primary)' }}>
+                    {verifyingItem.payment?.sender_name || verifyingItem.full_name}
+                  </strong>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ color: 'var(--color-text-secondary)', fontWeight: 600 }}>UTR / Reference ID:</span>
+                  <strong style={{ fontFamily: 'monospace', fontSize: '14px', color: '#7c3aed' }}>
+                    {verifyingItem.payment?.utr_id || 'Not specified'}
+                  </strong>
+                </div>
               </div>
+
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                 <span style={{ color: 'var(--color-text-secondary)' }}>Payment Method:</span>
                 <strong>{verifyingItem.payment?.payment_method || 'UPI'}</strong>
               </div>
+              {verifyingItem.payment?.notes && (
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: 'var(--color-text-secondary)' }}>Payment Notes:</span>
+                  <span style={{ color: 'var(--color-text-primary)' }}>{verifyingItem.payment.notes}</span>
+                </div>
+              )}
               {verifyingItem.payment?.created_at && (
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                   <span style={{ color: 'var(--color-text-secondary)' }}>Submitted At:</span>

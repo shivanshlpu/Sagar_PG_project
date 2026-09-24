@@ -63,6 +63,7 @@ export async function submitPayment(
     notes?: string | null;
     utr_id?: string | null;
     reference_id?: string | null;
+    sender_name?: string | null;
   },
   screenshotPath?: string | null
 ) {
@@ -96,12 +97,15 @@ export async function submitPayment(
     }
   }
 
-  const { utr_id, reference_id, notes, ...rest } = paymentData;
+  const { utr_id, reference_id, sender_name, notes, ...rest } = paymentData;
   const utr = (utr_id || reference_id || '').trim();
-  let finalNotes = notes?.trim() || null;
-  if (utr) {
-    finalNotes = finalNotes ? `UTR: ${utr} | ${finalNotes}` : `UTR: ${utr}`;
-  }
+  const sender = (sender_name || '').trim();
+
+  const noteParts: string[] = [];
+  if (utr) noteParts.push(`UTR: ${utr}`);
+  if (sender) noteParts.push(`Sender: ${sender}`);
+  if (notes?.trim()) noteParts.push(notes.trim());
+  const finalNotes = noteParts.length > 0 ? noteParts.join(' | ') : null;
 
   const { data, error } = await supabaseAdmin
     .from('payments')

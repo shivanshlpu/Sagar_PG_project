@@ -783,9 +783,11 @@ export interface RentTrackingItem {
     amount_paise: number;
     payment_method: string;
     utr_id?: string | null;
+    sender_name?: string | null;
     screenshot_path?: string | null;
     status: string;
     created_at: string;
+    notes?: string | null;
   } | null;
 }
 
@@ -1030,12 +1032,15 @@ export async function getRentTracking(
       }
     }
 
-    // Extract UTR if present
+    // Extract UTR and Sender Name if present
     let utrId: string | null = null;
+    let senderName: string | null = null;
     const activePayment = submittedPayment || verifiedPayment;
     if (activePayment?.notes) {
-      const match = activePayment.notes.match(/UTR:\s*([A-Za-z0-9_-]+)/i);
+      const match = activePayment.notes.match(/(?:UTR|Ref(?:erence)?|Txn(?: ID)?|UPI)[\s/:]+([A-Za-z0-9/_-]+)/i);
       if (match) utrId = match[1];
+      const senderMatch = activePayment.notes.match(/(?:Sender|Account|From)[\s/:]+([^|,\n]+)/i);
+      if (senderMatch) senderName = senderMatch[1].trim();
     }
 
     items.push({
@@ -1074,9 +1079,11 @@ export async function getRentTracking(
         amount_paise: activePayment.amount_paise,
         payment_method: activePayment.payment_method,
         utr_id: utrId,
+        sender_name: senderName,
         screenshot_path: activePayment.screenshot_path,
         status: activePayment.status,
         created_at: activePayment.created_at,
+        notes: activePayment.notes,
       } : null,
     });
   }

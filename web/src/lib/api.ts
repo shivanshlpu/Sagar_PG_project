@@ -256,31 +256,39 @@ export function formatMonth(monthStr: string | null | undefined): string {
   return monthStr;
 }
 
-// Extract payment reference/UTR ID and extra description notes
-export function extractReferenceId(notes?: string | null): { refId: string | null; extraNotes: string | null } {
-  if (!notes) return { refId: null, extraNotes: null };
+// Extract payment reference/UTR ID, sender name, and extra description notes
+export function extractReferenceId(notes?: string | null): { refId: string | null; senderName: string | null; extraNotes: string | null } {
+  if (!notes) return { refId: null, senderName: null, extraNotes: null };
   const str = notes.trim();
 
-  // 1. Explicit prefix: UTR, Ref, Reference, Txn, UPI
-  const prefixMatch = str.match(/(?:UTR|Ref(?:erence)?|Txn(?: ID)?|UPI)[\s/:]+([A-Za-z0-9/_-]{6,35})/i);
+  let refId: string | null = null;
+  let senderName: string | null = null;
+  let remaining = str;
+
+  // 1. Check for Sender: ...
+  const senderMatch = remaining.match(/(?:Sender|Account|From)[\s/:]+([^|,\n]+)/i);
+  if (senderMatch) {
+    senderName = senderMatch[1].trim();
+    remaining = remaining.replace(senderMatch[0], '');
+  }
+
+  // 2. Explicit prefix: UTR, Ref, Reference, Txn, UPI
+  const prefixMatch = remaining.match(/(?:UTR|Ref(?:erence)?|Txn(?: ID)?|UPI)[\s/:]+([A-Za-z0-9/_-]{6,35})/i);
   if (prefixMatch) {
-    const refId = prefixMatch[1].trim();
-    const extraNotes = str.replace(prefixMatch[0], '').replace(/^[|,\s.-]+|[|,\s.-]+$/g, '').trim();
-    return { refId, extraNotes: extraNotes || null };
+    refId = prefixMatch[1].trim();
+    remaining = remaining.replace(prefixMatch[0], '');
+  } else {
+    // 3. Standalone 10-22 digit numeric sequence (standard banking UTR / Txn number)
+    const numMatch = remaining.match(/\b([0-9]{10,22})\b/);
+    if (numMatch) {
+      refId = numMatch[1].trim();
+      remaining = remaining.replace(numMatch[0], '');
+    } else if (remaining.trim().length <= 25 && !remaining.trim().includes(' ') && !senderName) {
+      refId = remaining.trim();
+      remaining = '';
+    }
   }
 
-  // 2. Standalone 10-22 digit numeric sequence (standard banking UTR / Txn number)
-  const numMatch = str.match(/\b([0-9]{10,22})\b/);
-  if (numMatch) {
-    const refId = numMatch[1].trim();
-    const extraNotes = str.replace(numMatch[0], '').replace(/^[|,\s.-]+|[|,\s.-]+$/g, '').trim();
-    return { refId, extraNotes: extraNotes || null };
-  }
-
-  // 3. Short single token fallback
-  if (str.length <= 25 && !str.includes(' ')) {
-    return { refId: str, extraNotes: null };
-  }
-
-  return { refId: null, extraNotes: str };
+  const extraNotes = remaining.replace(/^[|,\s.-]+|[|,\s.-]+$/g, '').trim();
+  return { refId, senderName, extraNotes: extraNotes || null };
 }
