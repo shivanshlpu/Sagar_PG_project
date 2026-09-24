@@ -783,19 +783,7 @@ export default function AdminSettings() {
 
       {/* Property Code & Tenant Registration Link */}
       {pg && (
-        <div style={{
-          marginBottom: '24px',
-          padding: '16px 20px',
-          borderRadius: 'var(--radius-lg)',
-          backgroundColor: 'var(--color-bg-surface)',
-          border: '1px solid var(--color-border)',
-          display: 'flex',
-          flexWrap: 'wrap',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: '16px',
-          boxShadow: 'var(--shadow-sm)',
-        }}>
+        <div className="settings-top-banner">
           <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
             <div style={{
               width: '42px',
@@ -836,7 +824,7 @@ export default function AdminSettings() {
           </div>
 
           {pg.code && (
-            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', width: '100%', maxWidth: '420px' }}>
               <Button
                 variant="outline"
                 size="sm"
@@ -844,7 +832,7 @@ export default function AdminSettings() {
                   navigator.clipboard.writeText(pg.code || '');
                   showToast(`Copied PG Code: ${pg.code}`);
                 }}
-                style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+                style={{ flex: '1 1 140px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
               >
                 <Copy size={14} />
                 Copy Code ({pg.code})
@@ -858,10 +846,10 @@ export default function AdminSettings() {
                   navigator.clipboard.writeText(link);
                   showToast('Registration link copied to clipboard!');
                 }}
-                style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+                style={{ flex: '1 1 170px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
               >
                 <Send size={14} />
-                Copy Registration Link
+                Copy Link
               </Button>
             </div>
           )}
@@ -869,12 +857,12 @@ export default function AdminSettings() {
       )}
 
       {/* Tabs */}
-      <div style={tabContainerStyle}>
+      <div className="settings-tabs-bar">
         <button
           onClick={() => setActiveTab('profile')}
-          style={activeTab === 'profile' ? activeTabStyle : inactiveTabStyle}
+          className={`settings-tab-btn ${activeTab === 'profile' ? 'active' : ''}`}
         >
-          <Building2 size={18} />
+          <Building2 size={16} />
           <span>PG Profile</span>
           {profileForm.logo_url && (
             <span
@@ -892,9 +880,9 @@ export default function AdminSettings() {
 
         <button
           onClick={() => setActiveTab('wifi')}
-          style={activeTab === 'wifi' ? activeTabStyle : inactiveTabStyle}
+          className={`settings-tab-btn ${activeTab === 'wifi' ? 'active' : ''}`}
         >
-          <Wifi size={18} />
+          <Wifi size={16} />
           <span>Wi-Fi Networks</span>
           <span style={pillBadgeStyle}>{networks.length}</span>
         </button>
@@ -904,9 +892,9 @@ export default function AdminSettings() {
             setActiveTab('whatsapp');
             loadWhatsAppStatus(false);
           }}
-          style={activeTab === 'whatsapp' ? activeTabStyle : inactiveTabStyle}
+          className={`settings-tab-btn ${activeTab === 'whatsapp' ? 'active' : ''}`}
         >
-          <Phone size={18} />
+          <Phone size={16} />
           <span>WhatsApp Automation</span>
           <span
             style={{
@@ -926,33 +914,33 @@ export default function AdminSettings() {
             setActiveTab('templates');
             loadWhatsAppTemplates();
           }}
-          style={activeTab === 'templates' ? activeTabStyle : inactiveTabStyle}
+          className={`settings-tab-btn ${activeTab === 'templates' ? 'active' : ''}`}
         >
-          <MessageSquare size={18} />
+          <MessageSquare size={16} />
           <span>Message Templates</span>
         </button>
 
         <button
           onClick={() => setActiveTab('reminders')}
-          style={activeTab === 'reminders' ? activeTabStyle : inactiveTabStyle}
+          className={`settings-tab-btn ${activeTab === 'reminders' ? 'active' : ''}`}
         >
-          <Sliders size={18} />
+          <Sliders size={16} />
           <span>{t('settings.tab.reminders', 'Rent Reminders')}</span>
         </button>
 
         <button
           onClick={() => setActiveTab('billing')}
-          style={activeTab === 'billing' ? activeTabStyle : inactiveTabStyle}
+          className={`settings-tab-btn ${activeTab === 'billing' ? 'active' : ''}`}
         >
-          <Calculator size={18} />
+          <Calculator size={16} />
           <span>Billing & Rates</span>
         </button>
 
         <button
           onClick={() => setActiveTab('banking')}
-          style={activeTab === 'banking' ? activeTabStyle : inactiveTabStyle}
+          className={`settings-tab-btn ${activeTab === 'banking' ? 'active' : ''}`}
         >
-          <Landmark size={18} />
+          <Landmark size={16} />
           <span>Banking & QR Code</span>
           {banking.payment_qr && (
             <span
@@ -970,9 +958,9 @@ export default function AdminSettings() {
 
         <button
           onClick={() => setActiveTab('appearance')}
-          style={activeTab === 'appearance' ? activeTabStyle : inactiveTabStyle}
+          className={`settings-tab-btn ${activeTab === 'appearance' ? 'active' : ''}`}
         >
-          <Palette size={18} />
+          <Palette size={16} />
           <span>{t('settings.tab.appearance', 'Appearance & Theme')}</span>
           {theme === 'dark' && (
             <span style={{
@@ -987,9 +975,9 @@ export default function AdminSettings() {
 
         <button
           onClick={() => setActiveTab('security')}
-          style={activeTab === 'security' ? activeTabStyle : inactiveTabStyle}
+          className={`settings-tab-btn ${activeTab === 'security' ? 'active' : ''}`}
         >
-          <Lock size={18} />
+          <Lock size={16} />
           <span>Security</span>
         </button>
       </div>
@@ -1004,7 +992,7 @@ export default function AdminSettings() {
             </p>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(280px, 340px) 1fr', gap: '20px', alignItems: 'flex-start' }}>
+          <div className="settings-profile-grid">
             {/* Left Card: PG Logo & Branding Card */}
             <Card padding="lg" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -1147,7 +1135,7 @@ export default function AdminSettings() {
                 Business & Contact Details
               </h3>
 
-              <div className="form-grid-2" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '16px' }}>
+              <div className="settings-form-row">
                 <FormField label="Owner's Name" required hint="Printed as 'Owner: [Name]' on invoice headers">
                   <Input
                     placeholder="e.g. Rajesh Kumar"
@@ -1165,7 +1153,7 @@ export default function AdminSettings() {
                 </FormField>
               </div>
 
-              <div className="form-grid-2" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '16px' }}>
+              <div className="settings-form-row">
                 <FormField label="Tagline / Subtitle" hint="e.g. PREMIUM PG LIVING">
                   <Input
                     placeholder="e.g. PREMIUM PG LIVING"
@@ -1207,7 +1195,7 @@ export default function AdminSettings() {
                   />
                 </FormField>
 
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '12px', marginTop: '12px' }}>
+                <div className="settings-address-row">
                   <FormField label="City">
                     <Input
                       placeholder="e.g. Bengaluru"
@@ -1239,7 +1227,7 @@ export default function AdminSettings() {
                 <Button
                   onClick={handleSaveProfile}
                   isLoading={isSavingProfile}
-                  style={{ minWidth: '160px' }}
+                  className="settings-save-btn"
                 >
                   <Check size={16} /> Save Changes
                 </Button>
@@ -1265,13 +1253,13 @@ export default function AdminSettings() {
           </div>
 
           {isLoadingWifi ? (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '16px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 280px), 1fr))', gap: '16px' }}>
               {Array.from({ length: 3 }).map((_, i) => (
                 <div key={i} className="skeleton" style={{ height: '170px', borderRadius: 'var(--radius-lg)' }} />
               ))}
             </div>
           ) : networks.length > 0 ? (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '16px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 280px), 1fr))', gap: '16px' }}>
               {networks.map((net) => {
                 const showPass = showPasswordMap[net.id];
                 return (
@@ -1556,7 +1544,7 @@ export default function AdminSettings() {
 
               {/* METHOD 1: QR CODE */}
               {connectionMethod === 'qr' && (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '24px', alignItems: 'center' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 260px), 1fr))', gap: '24px', alignItems: 'center' }}>
                   <div style={{ display: 'flex', justifyContent: 'center' }}>
                     <div style={qrWrapperStyle}>
                       {waLoading ? (
@@ -1683,7 +1671,7 @@ export default function AdminSettings() {
                 Verify your WhatsApp connection by dispatching a live test message to any WhatsApp number.
               </p>
 
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '16px', alignItems: 'flex-start' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 250px), 1fr))', gap: '16px', alignItems: 'flex-start' }}>
                 <FormField label="Recipient Phone (with country code)" required hint="e.g. 919876543210">
                   <Input
                     placeholder="919876543210"
@@ -2243,7 +2231,7 @@ export default function AdminSettings() {
             </p>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: '24px', alignItems: 'start' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 320px), 1fr))', gap: '24px', alignItems: 'start' }}>
             {/* Left Card: Bank & UPI Form */}
             <Card padding="lg">
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
@@ -2790,51 +2778,7 @@ export default function AdminSettings() {
 }
 
 // --- Styles ---
-const tabContainerStyle: React.CSSProperties = {
-  display: 'flex',
-  gap: '8px',
-  borderBottom: '1px solid var(--color-border)',
-  marginBottom: '24px',
-  paddingBottom: '4px',
-  overflowX: 'auto',
-  WebkitOverflowScrolling: 'touch',
-  scrollbarWidth: 'none',
-  msOverflowStyle: 'none',
-};
 
-const activeTabStyle: React.CSSProperties = {
-  display: 'inline-flex',
-  alignItems: 'center',
-  gap: '8px',
-  padding: '10px 18px',
-  border: 'none',
-  borderBottom: '2px solid var(--color-primary)',
-  backgroundColor: 'transparent',
-  color: 'var(--color-primary)',
-  fontWeight: 600,
-  fontSize: 'var(--font-size-base)',
-  cursor: 'pointer',
-  transition: 'all 150ms ease',
-  flexShrink: 0,
-  whiteSpace: 'nowrap',
-};
-
-const inactiveTabStyle: React.CSSProperties = {
-  display: 'inline-flex',
-  alignItems: 'center',
-  gap: '8px',
-  padding: '10px 18px',
-  border: 'none',
-  borderBottom: '2px solid transparent',
-  backgroundColor: 'transparent',
-  color: 'var(--color-text-secondary)',
-  fontWeight: 500,
-  fontSize: 'var(--font-size-base)',
-  cursor: 'pointer',
-  transition: 'all 150ms ease',
-  flexShrink: 0,
-  whiteSpace: 'nowrap',
-};
 
 const pillBadgeStyle: React.CSSProperties = {
   fontSize: '11px',
