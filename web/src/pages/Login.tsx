@@ -46,12 +46,26 @@ export default function Login() {
   return (
     <div style={pageStyle}>
       <div style={containerStyle}>
-        <div style={{ textAlign: 'center', marginBottom: '32px' }}>
+        <div style={{ textAlign: 'center', marginBottom: '28px' }}>
+          <img
+            src="/app-logo.png"
+            alt="PG Manager Logo"
+            style={{
+              width: '68px',
+              height: '68px',
+              borderRadius: '16px',
+              objectFit: 'cover',
+              margin: '0 auto 14px',
+              display: 'block',
+              boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
+              border: '2px solid rgba(255,255,255,0.8)',
+            }}
+          />
           <h1 style={{
             fontSize: 'var(--font-size-2xl)',
             fontWeight: 700,
             color: 'var(--color-primary)',
-            marginBottom: '8px',
+            marginBottom: '6px',
           }}>
             PG Manager
           </h1>

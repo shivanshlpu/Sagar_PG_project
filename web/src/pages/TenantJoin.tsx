@@ -7,7 +7,7 @@ import { apiGet, apiPost } from '../lib/api';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { FormField, Input } from '../components/ui/FormField';
-import { Building2, CheckCircle2, AlertTriangle, ShieldCheck } from 'lucide-react';
+import { CheckCircle2, AlertTriangle, ShieldCheck } from 'lucide-react';
 
 const joinSchema = z
   .object({
@@ -178,22 +178,20 @@ export default function TenantJoin() {
           <>
             {/* Header */}
             <div style={{ textAlign: 'center', marginBottom: '24px' }}>
-              <div
+              <img
+                src="/app-logo.png"
+                alt="PG Portal Logo"
                 style={{
-                  width: '48px',
-                  height: '48px',
-                  borderRadius: '12px',
-                  backgroundColor: 'var(--color-primary-light)',
-                  color: 'var(--color-primary)',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
+                  width: '56px',
+                  height: '56px',
+                  borderRadius: '14px',
+                  objectFit: 'cover',
+                  display: 'inline-block',
                   marginBottom: '12px',
-                  border: '1px solid rgba(15, 118, 110, 0.2)',
+                  boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+                  border: '1.5px solid rgba(255,255,255,0.8)',
                 }}
-              >
-                <Building2 size={24} />
-              </div>
+              />
               <h1 style={{ fontSize: 'var(--font-size-2xl)', fontWeight: 700, color: 'var(--color-text-primary)', marginBottom: '4px' }}>
                 {pgInfo?.pgName || 'PG Portal'}
               </h1>

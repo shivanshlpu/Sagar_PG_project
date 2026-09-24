@@ -63,33 +63,49 @@ export function TopBar() {
           to={user?.role === 'admin' ? '/admin' : '/tenant'}
           style={{
             display: 'flex',
-            flexDirection: 'column',
+            alignItems: 'center',
+            gap: '10px',
             minWidth: 0,
             textDecoration: 'none',
             color: 'inherit',
           }}
           title={user?.role === 'admin' ? 'Admin Portal' : 'Tenant Portal'}
         >
-          <span style={{
-            fontSize: '15px',
-            fontWeight: 700,
-            color: 'var(--color-text-primary)',
-            whiteSpace: 'nowrap',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            lineHeight: 1.2,
-          }}>
-            {user?.pgName || pg?.name || 'Sagar PG'}
-          </span>
-          <span style={{
-            fontSize: '10px',
-            color: 'var(--color-text-muted)',
-            fontWeight: 500,
-            lineHeight: 1,
-            marginTop: '2px',
-          }}>
-            {user?.role === 'admin' ? 'Admin Portal' : 'Tenant Portal'}
-          </span>
+          <img
+            src={pg?.logo_url || '/app-logo.png'}
+            alt="App Logo"
+            style={{
+              width: '34px',
+              height: '34px',
+              borderRadius: '8px',
+              objectFit: 'cover',
+              flexShrink: 0,
+              boxShadow: '0 2px 6px rgba(0,0,0,0.08)',
+              border: '1px solid var(--color-border)',
+            }}
+          />
+          <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+            <span style={{
+              fontSize: '15px',
+              fontWeight: 700,
+              color: 'var(--color-text-primary)',
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              lineHeight: 1.2,
+            }}>
+              {user?.pgName || pg?.name || 'Sagar PG'}
+            </span>
+            <span style={{
+              fontSize: '10px',
+              color: 'var(--color-text-muted)',
+              fontWeight: 500,
+              lineHeight: 1,
+              marginTop: '2px',
+            }}>
+              {user?.role === 'admin' ? 'Admin Portal' : 'Tenant Portal'}
+            </span>
+          </div>
         </NavLink>
       </div>
 

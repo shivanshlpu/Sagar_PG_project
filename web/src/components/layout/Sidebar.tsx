@@ -88,26 +88,57 @@ export function Sidebar() {
       >
         {/* Logo/Brand */}
         <div style={{
-          padding: collapsed ? '16px 12px' : '16px 20px',
+          padding: collapsed ? '12px 8px' : '14px 16px',
           borderBottom: '1px solid var(--color-border)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: collapsed ? 'center' : 'space-between',
           minHeight: '56px',
+          gap: '8px',
         }}>
-          {!collapsed && (
-            <span style={{
-              fontSize: 'var(--font-size-md)',
-              fontWeight: 700,
-              color: 'var(--color-primary)',
-              letterSpacing: '-0.02em',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-              maxWidth: '160px',
-            }} title={user?.pgName || pg?.name || 'Sagar PG'}>
-              {user?.pgName || pg?.name || 'Sagar PG'}
-            </span>
+          {!collapsed ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
+              <img
+                src={pg?.logo_url || '/app-logo.png'}
+                alt="App Logo"
+                style={{
+                  width: '32px',
+                  height: '32px',
+                  borderRadius: '8px',
+                  objectFit: 'cover',
+                  flexShrink: 0,
+                  boxShadow: '0 2px 6px rgba(0,0,0,0.08)',
+                  border: '1px solid var(--color-border)',
+                }}
+              />
+              <span style={{
+                fontSize: 'var(--font-size-md)',
+                fontWeight: 700,
+                color: 'var(--color-primary)',
+                letterSpacing: '-0.02em',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                maxWidth: '140px',
+              }} title={user?.pgName || pg?.name || 'Sagar PG'}>
+                {user?.pgName || pg?.name || 'Sagar PG'}
+              </span>
+            </div>
+          ) : (
+            <img
+              src={pg?.logo_url || '/app-logo.png'}
+              alt="App Logo"
+              style={{
+                width: '30px',
+                height: '30px',
+                borderRadius: '6px',
+                objectFit: 'cover',
+                flexShrink: 0,
+                cursor: 'pointer',
+              }}
+              onClick={() => setCollapsed(false)}
+              title="Click to expand"
+            />
           )}
           <button
             onClick={() => setCollapsed(!collapsed)}

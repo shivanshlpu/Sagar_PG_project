@@ -8,7 +8,6 @@ import { printElement } from '../../lib/printHelper';
 import {
   Printer,
   Send,
-  Building2,
   Phone,
   Mail,
   MapPin,
@@ -270,18 +269,17 @@ export function RentInvoiceModal({
                   />
                 ) : (
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-                    <div style={{
-                      width: '40px',
-                      height: '40px',
-                      borderRadius: '8px',
-                      backgroundColor: '#0f2942',
-                      color: '#ffffff',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center'
-                    }}>
-                      <Building2 size={22} />
-                    </div>
+                    <img
+                      src="/app-logo.png"
+                      alt={pgName}
+                      style={{
+                        width: '40px',
+                        height: '40px',
+                        borderRadius: '8px',
+                        objectFit: 'cover',
+                        flexShrink: 0,
+                      }}
+                    />
                     <div>
                       <div style={{ fontSize: '18px', fontWeight: 800, color: '#0f2942', lineHeight: 1.1 }}>
                         {pgName}
