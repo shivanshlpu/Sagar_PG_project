@@ -1,7 +1,7 @@
 import { supabaseAdmin } from '../config/supabase';
 import { logAudit } from './auditLog.service';
 import { sendWhatsAppMessage } from './whatsapp.service';
-import { sendRentBillWhatsApp } from './rent.service';
+import { sendRentBillWhatsApp, generateRentRecords } from './rent.service';
 import { formatDateDMY, formatMonthMY } from '../utils/date';
 import { generateRentInvoicePdf } from './invoicePdf.service';
 import { getWhatsAppMessageTemplates, renderWhatsAppTemplate } from './settings.service';
@@ -195,6 +195,17 @@ export async function verifyPayment(
           .eq('month', payMonth)
           .maybeSingle();
         targetRent = monthRent;
+
+        if (!targetRent) {
+          try {
+            const generated = await generateRentRecords(pgId, payMonth, [payment.tenant_id]);
+            if (generated && generated.length > 0) {
+              targetRent = generated[0];
+            }
+          } catch (genErr) {
+            console.warn('[Payments] On-demand rent record creation notice:', genErr);
+          }
+        }
       }
 
       if (targetRent) {

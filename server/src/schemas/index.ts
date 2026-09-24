@@ -157,9 +157,22 @@ export const createElectricityBillSchema = z.object({
 );
 
 export const updateElectricityBillSchema = z.object({
+  month: z.string().regex(/^\d{4}-\d{2}$/, 'Month must be in YYYY-MM format').optional(),
+  previous_reading: z.number().min(0).optional(),
+  current_reading: z.number().min(0).optional(),
+  rate_per_unit_paise: z.number().int().min(0).optional(),
+  total_amount_paise: z.number().int().min(0).optional(),
   status: z.enum(['pending', 'paid', 'included_in_rent']).optional(),
   notes: z.string().max(1000).nullable().optional(),
-}).strict();
+}).strict().refine(
+  (data) => {
+    if (data.previous_reading !== undefined && data.current_reading !== undefined) {
+      return data.current_reading >= data.previous_reading;
+    }
+    return true;
+  },
+  { message: 'Current reading must be greater than or equal to previous reading', path: ['current_reading'] }
+);
 
 // -- Payment Schemas --
 export const submitPaymentSchema = z.object({

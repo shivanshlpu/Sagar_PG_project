@@ -5,12 +5,13 @@ import { z } from 'zod';
 import { ResponsiveTable, type ResponsiveColumn } from '../components/common/ResponsiveTable';
 import { Badge, getStatusBadgeVariant, Button, Modal, FormField, Input, Select } from '../components/ui';
 import { useToast } from '../components/ui/Toast';
-import { apiGet, apiPost, formatCurrency, formatMonth } from '../lib/api';
-import { Zap, Plus, Calculator, Info } from 'lucide-react';
+import { apiGet, apiPost, apiPatch, formatCurrency, formatMonth } from '../lib/api';
+import { Zap, Plus, Calculator, Info, Pencil, FileText, Lock, AlertCircle } from 'lucide-react';
 
 interface ElBill {
   id: string;
   month: string;
+  tenant_id?: string;
   tenant?: { full_name: string };
   room?: { room_number: string };
   previous_reading: number;
@@ -19,6 +20,7 @@ interface ElBill {
   rate_per_unit_paise: number;
   total_amount_paise: number;
   status: string;
+  notes?: string | null;
 }
 
 const billSchema = z.object({
@@ -40,6 +42,16 @@ export default function AdminElectricity() {
   const [rooms, setRooms] = React.useState<Array<{ id: string; room_number: string }>>([]);
   const [defaultRatePaise, setDefaultRatePaise] = React.useState(1200);
   const { showToast } = useToast();
+
+  // Edit & View Details state
+  const [editingBill, setEditingBill] = React.useState<ElBill | null>(null);
+  const [viewingBill, setViewingBill] = React.useState<ElBill | null>(null);
+  const [editMonth, setEditMonth] = React.useState('');
+  const [editPrevReading, setEditPrevReading] = React.useState<number>(0);
+  const [editCurrReading, setEditCurrReading] = React.useState<number>(0);
+  const [editRateRupees, setEditRateRupees] = React.useState<number>(12);
+  const [editNotes, setEditNotes] = React.useState<string>('');
+  const [isSavingEdit, setIsSavingEdit] = React.useState(false);
 
   const { register, handleSubmit, reset, setValue, watch, formState: { errors } } = useForm<BillForm>({
     resolver: zodResolver(billSchema) as any,
@@ -105,6 +117,48 @@ export default function AdminElectricity() {
     setShowModal(true);
   }
 
+  function openEditModal(bill: ElBill) {
+    if (bill.status === 'paid') {
+      showToast('Completed financial records are locked. A paid electricity bill cannot be modified.', 'error');
+      return;
+    }
+    setEditingBill(bill);
+    setEditMonth(bill.month);
+    setEditPrevReading(bill.previous_reading);
+    setEditCurrReading(bill.current_reading);
+    setEditRateRupees(bill.rate_per_unit_paise ? bill.rate_per_unit_paise / 100 : defaultRatePaise / 100);
+    setEditNotes(bill.notes || '');
+  }
+
+  async function handleSaveEdit() {
+    if (!editingBill) return;
+    if (editCurrReading < editPrevReading) {
+      showToast('Current reading must be greater than or equal to previous reading', 'error');
+      return;
+    }
+    setIsSavingEdit(true);
+    const units = Math.max(0, editCurrReading - editPrevReading);
+    const totalAmountPaise = Math.round(units * editRateRupees * 100);
+
+    const res = await apiPatch(`/electricity/bills/${editingBill.id}`, {
+      month: editMonth,
+      previous_reading: editPrevReading,
+      current_reading: editCurrReading,
+      rate_per_unit_paise: Math.round(editRateRupees * 100),
+      total_amount_paise: totalAmountPaise,
+      notes: editNotes.trim() || null,
+    });
+
+    if (res.success) {
+      showToast('Electricity bill updated & rent dues recalculated successfully');
+      setEditingBill(null);
+      loadBills();
+    } else {
+      showToast(res.error || 'Failed to update electricity bill', 'error');
+    }
+    setIsSavingEdit(false);
+  }
+
   async function onSubmit(data: BillForm) {
     const payload = {
       tenant_id: data.tenant_id,
@@ -136,6 +190,23 @@ export default function AdminElectricity() {
     { key: 'rate', header: 'Rate (₹/u)', render: (r: ElBill) => `₹${(r.rate_per_unit_paise / 100).toFixed(2)}` },
     { key: 'total_amount_paise', header: 'Amount', render: (r: ElBill) => <span className="tabular-nums" style={{ fontWeight: 600 }}>{formatCurrency(r.total_amount_paise)}</span>, sortable: true },
     { key: 'status', header: 'Status', render: (r: ElBill) => <Badge variant={getStatusBadgeVariant(r.status)}>{r.status}</Badge> },
+    {
+      key: 'actions',
+      header: 'Actions',
+      render: (r: ElBill) => (
+        <div style={{ display: 'flex', gap: '6px' }}>
+          {r.status === 'paid' ? (
+            <Button size="sm" variant="secondary" onClick={() => setViewingBill(r)}>
+              <FileText size={14} /> View Details
+            </Button>
+          ) : (
+            <Button size="sm" variant="secondary" onClick={() => openEditModal(r)}>
+              <Pencil size={14} /> Edit Bill
+            </Button>
+          )}
+        </div>
+      ),
+    },
   ];
 
   return (
@@ -256,6 +327,27 @@ export default function AdminElectricity() {
                   </div>
                 )}
               </div>
+
+              {/* Bottom Actions: Edit Bill (if pending) / View Details (if paid) */}
+              <div style={{
+                display: 'flex',
+                justifyContent: 'flex-end',
+                alignItems: 'center',
+                gap: '8px',
+                marginTop: '6px',
+                paddingTop: '10px',
+                borderTop: '1px solid var(--color-border)',
+              }}>
+                {bill.status === 'paid' ? (
+                  <Button size="sm" variant="secondary" onClick={() => setViewingBill(bill)}>
+                    <Lock size={13} style={{ color: 'var(--color-success)' }} /> View Details
+                  </Button>
+                ) : (
+                  <Button size="sm" variant="secondary" onClick={() => openEditModal(bill)}>
+                    <Pencil size={13} /> Edit Bill
+                  </Button>
+                )}
+              </div>
             </div>
           );
         }}
@@ -356,6 +448,240 @@ export default function AdminElectricity() {
             <span>This electricity bill will immediately add ₹{(calculatedCostPaise / 100).toFixed(2)} to the tenant's monthly dues breakdown alongside their room rent and fixed maintenance.</span>
           </div>
         </div>
+      </Modal>
+
+      {/* Edit Bill Modal (Allowed for Pending bills) */}
+      <Modal
+        isOpen={!!editingBill}
+        onClose={() => setEditingBill(null)}
+        title={`Edit Electricity Bill — ${editingBill?.tenant?.full_name || 'Resident'}`}
+        footer={
+          <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+            <Button variant="secondary" onClick={() => setEditingBill(null)}>Cancel</Button>
+            <Button onClick={handleSaveEdit} disabled={isSavingEdit}>
+              {isSavingEdit ? 'Saving Changes...' : 'Save & Recalculate'}
+            </Button>
+          </div>
+        }
+      >
+        {editingBill && (
+          <div>
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '10px 12px',
+              backgroundColor: 'var(--color-bg-surface-alt)',
+              borderRadius: 'var(--radius-md)',
+              marginBottom: '16px',
+            }}>
+              <div>
+                <strong style={{ display: 'block', fontSize: 'var(--font-size-sm)' }}>
+                  {editingBill.tenant?.full_name || 'Resident'}
+                </strong>
+                <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
+                  {editingBill.room?.room_number ? `Room ${editingBill.room.room_number}` : 'No room'}
+                </span>
+              </div>
+              <Badge variant={getStatusBadgeVariant(editingBill.status)}>{editingBill.status}</Badge>
+            </div>
+
+            <FormField label="Billing Month" required>
+              <Input
+                type="month"
+                value={editMonth}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEditMonth(e.target.value)}
+              />
+            </FormField>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+              <FormField label="Previous Reading" required>
+                <Input
+                  type="number"
+                  step="1"
+                  value={editPrevReading}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEditPrevReading(Number(e.target.value))}
+                />
+              </FormField>
+
+              <FormField label="Current Reading" required>
+                <Input
+                  type="number"
+                  step="1"
+                  value={editCurrReading}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEditCurrReading(Number(e.target.value))}
+                />
+              </FormField>
+            </div>
+
+            <FormField label="Rate per Unit (₹)" required>
+              <Input
+                type="number"
+                step="0.5"
+                value={editRateRupees}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEditRateRupees(Number(e.target.value))}
+              />
+            </FormField>
+
+            <FormField label="Notes / Remarks (Optional)">
+              <Input
+                type="text"
+                placeholder="e.g. Corrected meter reading error"
+                value={editNotes}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEditNotes(e.target.value)}
+              />
+            </FormField>
+
+            {/* Live Recalculation Preview */}
+            <div style={{
+              marginTop: '16px',
+              padding: '14px',
+              borderRadius: 'var(--radius-md)',
+              backgroundColor: 'var(--color-bg-surface-alt)',
+              border: '1px solid var(--color-border)',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                <Calculator size={16} style={{ color: 'var(--color-primary)' }} />
+                <span style={{ fontSize: 'var(--font-size-sm)', fontWeight: 600 }}>Live Recalculation</span>
+              </div>
+
+              {editCurrReading < editPrevReading ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--color-error)', fontSize: 'var(--font-size-xs)' }}>
+                  <AlertCircle size={14} />
+                  <span>Current reading ({editCurrReading}) cannot be less than previous reading ({editPrevReading})</span>
+                </div>
+              ) : (
+                <>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', fontSize: 'var(--font-size-xs)' }}>
+                    <div>
+                      <span style={{ color: 'var(--color-text-secondary)' }}>Units Consumed: </span>
+                      <strong style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-primary)' }}>
+                        {Math.max(0, editCurrReading - editPrevReading)} units
+                      </strong>
+                    </div>
+                    <div>
+                      <span style={{ color: 'var(--color-text-secondary)' }}>New Total Cost: </span>
+                      <strong style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-primary)' }}>
+                        {formatCurrency(Math.round(Math.max(0, editCurrReading - editPrevReading) * editRateRupees * 100))}
+                      </strong>
+                    </div>
+                  </div>
+                  <div style={{ marginTop: '8px', fontSize: '11px', color: 'var(--color-text-secondary)' }}>
+                    Formula: ({editCurrReading} - {editPrevReading}) × ₹{editRateRupees.toFixed(2)}
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* View Details Modal (Read-only for Paid bills to preserve audit trail) */}
+      <Modal
+        isOpen={!!viewingBill}
+        onClose={() => setViewingBill(null)}
+        title="Electricity Bill Details"
+        footer={
+          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+            <Button variant="secondary" onClick={() => setViewingBill(null)}>Close</Button>
+          </div>
+        }
+      >
+        {viewingBill && (
+          <div>
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '10px',
+              padding: '12px 14px',
+              backgroundColor: 'rgba(16, 185, 129, 0.08)',
+              border: '1px solid rgba(16, 185, 129, 0.25)',
+              borderRadius: 'var(--radius-md)',
+              marginBottom: '16px',
+            }}>
+              <Lock size={18} style={{ color: 'var(--color-success)', flexShrink: 0 }} />
+              <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-primary)' }}>
+                <strong>Completed Financial Record</strong>
+                <p style={{ margin: '2px 0 0', color: 'var(--color-text-secondary)' }}>
+                  This bill is marked as <strong>Paid</strong>. Normal editing is permanently disabled to preserve financial audit trail.
+                </p>
+              </div>
+            </div>
+
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: '1fr 1fr',
+              gap: '12px',
+              fontSize: 'var(--font-size-sm)',
+              marginBottom: '16px',
+            }}>
+              <div>
+                <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>Resident</span>
+                <p style={{ margin: '2px 0 0', fontWeight: 600 }}>{viewingBill.tenant?.full_name || 'Resident'}</p>
+              </div>
+              <div>
+                <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>Room</span>
+                <p style={{ margin: '2px 0 0', fontWeight: 600 }}>{viewingBill.room?.room_number ? `Room ${viewingBill.room.room_number}` : 'Unassigned'}</p>
+              </div>
+              <div>
+                <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>Billing Month</span>
+                <p style={{ margin: '2px 0 0', fontWeight: 600 }}>{formatMonth(viewingBill.month)}</p>
+              </div>
+              <div>
+                <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>Status</span>
+                <div style={{ marginTop: '2px' }}><Badge variant="success">Paid</Badge></div>
+              </div>
+            </div>
+
+            <div style={{
+              padding: '14px',
+              borderRadius: 'var(--radius-md)',
+              backgroundColor: 'var(--color-bg-surface-alt)',
+              border: '1px solid var(--color-border)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '8px',
+              fontSize: 'var(--font-size-xs)',
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: 'var(--color-text-secondary)' }}>Previous Meter Reading:</span>
+                <strong>{viewingBill.previous_reading}</strong>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: 'var(--color-text-secondary)' }}>Current Meter Reading:</span>
+                <strong>{viewingBill.current_reading}</strong>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: 'var(--color-text-secondary)' }}>Units Consumed:</span>
+                <strong style={{ color: 'var(--color-text-primary)' }}>{viewingBill.units_consumed} units</strong>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: 'var(--color-text-secondary)' }}>Rate per Unit:</span>
+                <strong>₹{(viewingBill.rate_per_unit_paise / 100).toFixed(2)} / unit</strong>
+              </div>
+              <div style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                borderTop: '1px dashed var(--color-border)',
+                paddingTop: '8px',
+                marginTop: '4px',
+                fontSize: 'var(--font-size-sm)',
+              }}>
+                <span style={{ fontWeight: 600 }}>Total Paid Amount:</span>
+                <strong style={{ color: 'var(--color-primary)' }} className="tabular-nums">
+                  {formatCurrency(viewingBill.total_amount_paise)}
+                </strong>
+              </div>
+            </div>
+
+            {viewingBill.notes && (
+              <div style={{ marginTop: '12px', fontSize: 'var(--font-size-xs)' }}>
+                <span style={{ color: 'var(--color-text-secondary)' }}>Notes: </span>
+                <span>{viewingBill.notes}</span>
+              </div>
+            )}
+          </div>
+        )}
       </Modal>
     </div>
   );

@@ -103,6 +103,20 @@ export async function checkAndSendRentReminders(targetPgId?: string): Promise<{
       // STOP IMMEDIATELY if marked paid or paid_date exists
       if (record.status === 'paid' || record.paid_date) continue;
 
+      // Pause automated reminder spam if tenant has submitted a payment awaiting admin verification
+      const { data: pendingPayment } = await supabaseAdmin
+        .from('payments')
+        .select('id')
+        .eq('pg_id', pg.id)
+        .eq('tenant_id', tenant.id)
+        .eq('status', 'submitted')
+        .maybeSingle();
+
+      if (pendingPayment) {
+        console.log(`[Reminders] Tenant ${tenant.full_name} has a payment awaiting verification. Pausing automated reminder.`);
+        continue;
+      }
+
       // Ensure tenant's due date has actually arrived
       const recordDueDate = record.due_date ? record.due_date.split('T')[0] : '';
       if (!recordDueDate || recordDueDate > todayStr) {

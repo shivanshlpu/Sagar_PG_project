@@ -23,6 +23,33 @@ router.post('/send-reminders', authorize('admin'), async (req: Request, res: Res
   }
 });
 
+// GET /rent/tracking [Admin] — live rent tracking & payment lifecycle for all active tenants
+router.get('/tracking', authorize('admin'), async (req: Request, res: Response) => {
+  try {
+    const month = (req.query.month as string) || undefined;
+    const windowDays = req.query.window ? parseInt(req.query.window as string, 10) : 10;
+    const data = await rentService.getRentTracking(req.user!.pgId, { month, upcomingWindowDays: windowDays });
+    res.json({ success: true, ...data });
+  } catch (err) {
+    res.status(400).json({ success: false, error: (err as Error).message });
+  }
+});
+
+// POST /rent/remind-tenant [Admin] — send due reminder to a specific tenant
+router.post('/remind-tenant', authorize('admin'), async (req: Request, res: Response) => {
+  try {
+    const { tenant_id, month } = req.body;
+    if (!tenant_id) {
+      res.status(400).json({ success: false, error: 'tenant_id is required' });
+      return;
+    }
+    const data = await rentService.sendTenantDueReminder(req.user!.pgId, tenant_id, month);
+    res.json({ success: true, data });
+  } catch (err) {
+    res.status(400).json({ success: false, error: (err as Error).message });
+  }
+});
+
 // GET /rent and /rent/records [Admin]
 router.get(['/', '/records'], authorize('admin'), validateQuery(rentQuerySchema), async (req: Request, res: Response) => {
   try {
