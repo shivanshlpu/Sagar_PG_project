@@ -14,6 +14,7 @@ import {
   MapPin,
   Home,
   QrCode as QrIcon,
+  Check,
 } from 'lucide-react';
 
 export interface InvoiceTenant {
@@ -134,10 +135,12 @@ export function RentInvoiceModal({
   const lateFeePaise = record.late_fee_paise || 0;
   const totalDuePaise = record.total_due_paise || (baseRentPaise + maintenancePaise + electricityPaise + waterPaise + lateFeePaise);
 
+  const isPaid = record.status === 'paid' || record.status === 'verified';
   const totalAmountInRupees = (totalDuePaise / 100).toFixed(2);
 
-  // Generate UPI QR Code URL
+  // Generate UPI QR Code URL if payment is still due
   React.useEffect(() => {
+    if (isPaid) return;
     async function generateQR() {
       const upiId = activePG.upi_id || '9876543210@upi';
       const payeeName = activePG.name || 'PG Living';
@@ -159,7 +162,7 @@ export function RentInvoiceModal({
     }
 
     generateQR();
-  }, [activePG.upi_id, activePG.name, totalAmountInRupees, monthFormatted]);
+  }, [activePG.upi_id, activePG.name, totalAmountInRupees, monthFormatted, isPaid]);
 
   // Construct itemized rows
   const lineItems: { sl: number; description: string; amountPaise: number }[] = [];
@@ -327,16 +330,36 @@ export function RentInvoiceModal({
               <div
                 className="invoice-title-text"
                 style={{
-                  fontSize: '24px',
+                  fontSize: '22px',
                   fontWeight: 900,
                   color: '#0f2942',
                   letterSpacing: '0.02em',
                   textTransform: 'uppercase',
-                  marginBottom: '10px',
+                  marginBottom: '6px',
                 }}
               >
-                RENT INVOICE
+                {isPaid ? 'OFFICIAL RENT BILL' : 'RENT INVOICE'}
               </div>
+
+              {isPaid && (
+                <div style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '4px 10px',
+                  borderRadius: '6px',
+                  backgroundColor: '#dcfce7',
+                  border: '1.5px solid #22c55e',
+                  color: '#15803d',
+                  fontWeight: 800,
+                  fontSize: '11px',
+                  letterSpacing: '0.04em',
+                  textTransform: 'uppercase',
+                  marginBottom: '8px',
+                }}>
+                  <Check size={13} strokeWidth={3} /> VERIFIED & PAID
+                </div>
+              )}
 
               {/* Inset Card for Invoice details */}
               <div className="invoice-meta-card">
@@ -356,6 +379,22 @@ export function RentInvoiceModal({
                   <span style={{ color: '#64748b', fontWeight: 500 }}>Month</span>
                   <span style={{ color: '#94a3b8' }}>:</span>
                   <span style={{ color: '#1e293b', fontWeight: 600 }}>{monthFormatted}</span>
+
+                  <span style={{ color: '#64748b', fontWeight: 500 }}>Status</span>
+                  <span style={{ color: '#94a3b8' }}>:</span>
+                  <strong style={{ color: isPaid ? '#16a34a' : '#d97706', fontWeight: 800 }}>
+                    {isPaid ? 'VERIFIED & PAID' : record.status.toUpperCase()}
+                  </strong>
+
+                  {isPaid && (
+                    <>
+                      <span style={{ color: '#64748b', fontWeight: 500 }}>Paid On</span>
+                      <span style={{ color: '#94a3b8' }}>:</span>
+                      <span style={{ color: '#16a34a', fontWeight: 700 }}>
+                        {record.paid_date ? formatDate(record.paid_date) : formatDate(new Date().toISOString())}
+                      </span>
+                    </>
+                  )}
                 </div>
               </div>
             </div>
@@ -508,68 +547,106 @@ export function RentInvoiceModal({
               </div>
             </div>
 
-            {/* Right: Scan to Pay UPI QR + Badges + Signature */}
+            {/* Right: Payment Confirmation (if paid) OR Scan to Pay UPI QR (if pending) + Signature */}
             <div className="invoice-qr-col">
-              <div style={{ fontSize: '13px', fontWeight: 800, color: '#0f2942', marginBottom: '6px' }}>
-                Scan to Pay
-              </div>
-
-              {/* QR Code Container */}
-              <div style={{
-                padding: '6px',
-                backgroundColor: '#ffffff',
-                border: '2px solid #e2e8f0',
-                borderRadius: '8px',
-                display: 'inline-block',
-                boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
-                marginBottom: '8px',
-              }}>
-                {qrCodeDataUrl ? (
-                  <img
-                    src={qrCodeDataUrl}
-                    alt="UPI Payment QR Code"
-                    style={{ width: '135px', height: '135px', display: 'block' }}
-                  />
-                ) : (
-                  <div style={{ width: '135px', height: '135px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8' }}>
-                    <QrIcon size={48} />
+              {isPaid ? (
+                <div style={{
+                  width: '100%',
+                  padding: '16px 14px',
+                  backgroundColor: '#f0fdf4',
+                  border: '2px solid #86efac',
+                  borderRadius: '8px',
+                  textAlign: 'center',
+                  marginBottom: '14px',
+                  boxShadow: '0 2px 8px rgba(34, 197, 94, 0.08)',
+                }}>
+                  <div style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    width: '42px',
+                    height: '42px',
+                    borderRadius: '50%',
+                    backgroundColor: '#22c55e',
+                    color: '#ffffff',
+                    marginBottom: '8px',
+                  }}>
+                    <Check size={24} strokeWidth={3} />
                   </div>
-                )}
-              </div>
+                  <div style={{ fontSize: '14px', fontWeight: 800, color: '#166534', letterSpacing: '0.03em' }}>
+                    PAYMENT VERIFIED
+                  </div>
+                  <div style={{ fontSize: '11px', color: '#15803d', marginTop: '3px' }}>
+                    Confirmed by property management
+                  </div>
+                  <div style={{ fontSize: '11px', fontWeight: 600, color: '#166534', marginTop: '6px', borderTop: '1px dashed #bbf7d0', paddingTop: '6px' }}>
+                    Paid on {record.paid_date ? formatDate(record.paid_date) : formatDate(new Date().toISOString())}
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div style={{ fontSize: '13px', fontWeight: 800, color: '#0f2942', marginBottom: '6px' }}>
+                    Scan to Pay
+                  </div>
 
-              {/* Payment App Badges */}
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', marginBottom: '14px' }}>
-                <span style={{
-                  fontSize: '10px',
-                  fontWeight: 700,
-                  color: '#ffffff',
-                  backgroundColor: '#ea4335',
-                  padding: '2px 6px',
-                  borderRadius: '4px'
-                }}>
-                  GPay
-                </span>
-                <span style={{
-                  fontSize: '10px',
-                  fontWeight: 700,
-                  color: '#ffffff',
-                  backgroundColor: '#5f259f',
-                  padding: '2px 6px',
-                  borderRadius: '4px'
-                }}>
-                  PhonePe
-                </span>
-                <span style={{
-                  fontSize: '10px',
-                  fontWeight: 700,
-                  color: '#ffffff',
-                  backgroundColor: '#00b9f1',
-                  padding: '2px 6px',
-                  borderRadius: '4px'
-                }}>
-                  Paytm
-                </span>
-              </div>
+                  {/* QR Code Container */}
+                  <div style={{
+                    padding: '6px',
+                    backgroundColor: '#ffffff',
+                    border: '2px solid #e2e8f0',
+                    borderRadius: '8px',
+                    display: 'inline-block',
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
+                    marginBottom: '8px',
+                  }}>
+                    {qrCodeDataUrl ? (
+                      <img
+                        src={qrCodeDataUrl}
+                        alt="UPI Payment QR Code"
+                        style={{ width: '135px', height: '135px', display: 'block' }}
+                      />
+                    ) : (
+                      <div style={{ width: '135px', height: '135px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8' }}>
+                        <QrIcon size={48} />
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Payment App Badges */}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', marginBottom: '14px' }}>
+                    <span style={{
+                      fontSize: '10px',
+                      fontWeight: 700,
+                      color: '#ffffff',
+                      backgroundColor: '#ea4335',
+                      padding: '2px 6px',
+                      borderRadius: '4px'
+                    }}>
+                      GPay
+                    </span>
+                    <span style={{
+                      fontSize: '10px',
+                      fontWeight: 700,
+                      color: '#ffffff',
+                      backgroundColor: '#5f259f',
+                      padding: '2px 6px',
+                      borderRadius: '4px'
+                    }}>
+                      PhonePe
+                    </span>
+                    <span style={{
+                      fontSize: '10px',
+                      fontWeight: 700,
+                      color: '#ffffff',
+                      backgroundColor: '#00b9f1',
+                      padding: '2px 6px',
+                      borderRadius: '4px'
+                    }}>
+                      Paytm
+                    </span>
+                  </div>
+                </>
+              )}
 
               {/* Signature / Greeting */}
               <div style={{ marginTop: '2px', textAlign: 'center' }}>

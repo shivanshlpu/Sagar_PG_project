@@ -22,9 +22,12 @@ import {
   Landmark,
   CheckCircle2,
   DoorOpen,
+  FileText,
 } from 'lucide-react';
+import { RentInvoiceModal, type RentInvoiceData } from '../components/billing/RentInvoiceModal';
 
 interface TenantBillingSummary {
+  pgProfile?: any;
   tenant: {
     id: string;
     full_name: string;
@@ -125,6 +128,84 @@ export default function TenantDashboard() {
   const [paymentAmount, setPaymentAmount] = React.useState<number | string>('');
   const [paymentNotes, setPaymentNotes] = React.useState('');
   const [isSubmitting, setIsSubmitting] = React.useState(false);
+  const [selectedInvoiceRecord, setSelectedInvoiceRecord] = React.useState<RentInvoiceData | null>(null);
+  const [isLoadingBill, setIsLoadingBill] = React.useState(false);
+
+  async function openVerifiedBillModal(recordIdOrPaymentId?: string | null) {
+    if (!data) return;
+    setIsLoadingBill(true);
+
+    let invoiceRecord: RentInvoiceData | null = null;
+    if (recordIdOrPaymentId) {
+      // Check if it matches a rent record
+      const rentRec = data.rentRecords.find(r => r.id === recordIdOrPaymentId);
+      if (rentRec) {
+        try {
+          const res = await apiGet<any>(`/rent/${rentRec.id}`);
+          if (res.success && res.data) {
+            invoiceRecord = res.data;
+          }
+        } catch {
+          // fallback
+        }
+      } else {
+        // Maybe it's a payment id, try fetching payment or matching rent record
+        const payRec = data.payments.find(p => p.id === recordIdOrPaymentId);
+        if (payRec) {
+          const payMonth = payRec.created_at ? payRec.created_at.slice(0, 7) : new Date().toISOString().slice(0, 7);
+          const matchedRent = data.rentRecords.find(r => r.month === payMonth);
+          if (matchedRent) {
+            try {
+              const res = await apiGet<any>(`/rent/${matchedRent.id}`);
+              if (res.success && res.data) {
+                invoiceRecord = res.data;
+              }
+            } catch {
+              // fallback
+            }
+          }
+        }
+      }
+    }
+
+    // Fallback: construct from currentDue and billing details
+    if (!invoiceRecord) {
+      const cur = data.currentDue;
+      const notesObj = {
+        base_rent_paise: cur.base_rent_paise,
+        maintenance_paise: cur.maintenance_paise,
+        electricity_amount_paise: cur.electricity_amount_paise,
+        electricity_units: cur.electricity_units,
+        electricity_rate_per_unit_paise: cur.electricity_rate_per_unit_paise,
+      };
+
+      invoiceRecord = {
+        id: cur.rent_record_id || `INV-${cur.month}`,
+        month: cur.month,
+        rent_amount_paise: cur.base_rent_paise,
+        late_fee_paise: cur.late_fee_paise,
+        total_due_paise: cur.total_due_paise,
+        status: cur.status,
+        due_date: cur.due_date,
+        paid_date: cur.status === 'paid' ? new Date().toISOString() : null,
+        notes: JSON.stringify(notesObj),
+        tenant: {
+          id: data.tenant.id,
+          full_name: data.tenant.full_name,
+          phone: data.tenant.phone,
+          email: data.tenant.email,
+        },
+        room: {
+          room_number: data.tenant.room_number,
+          floor: data.tenant.floor,
+        },
+        pg: data.pgProfile,
+      };
+    }
+
+    setSelectedInvoiceRecord(invoiceRecord);
+    setIsLoadingBill(false);
+  }
 
   async function openPaymentModal() {
     setShowPaymentModal(true);
@@ -528,18 +609,43 @@ export default function TenantDashboard() {
         {isPaid && (
           <div style={{
             marginTop: '16px',
-            padding: '12px 18px',
+            padding: '14px 18px',
             backgroundColor: 'var(--color-success-light)',
-            color: 'var(--color-success)',
+            border: '1px solid var(--color-success)',
             borderRadius: 'var(--radius-md)',
             display: 'flex',
+            justifyContent: 'space-between',
             alignItems: 'center',
-            gap: '10px',
-            fontSize: 'var(--font-size-sm)',
-            fontWeight: 600,
+            flexWrap: 'wrap',
+            gap: '12px',
           }}>
-            <CheckCircle2 size={18} />
-            <span>Rent for this month is fully settled and verified by administration.</span>
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '10px',
+              color: 'var(--color-success)',
+              fontSize: 'var(--font-size-sm)',
+              fontWeight: 600,
+            }}>
+              <CheckCircle2 size={20} />
+              <span>Rent for this month is fully settled & verified by property administration.</span>
+            </div>
+
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => openVerifiedBillModal(current?.rent_record_id)}
+              isLoading={isLoadingBill}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                fontWeight: 600,
+                color: 'var(--color-primary)',
+              }}
+            >
+              <FileText size={15} /> View Official Bill
+            </Button>
           </div>
         )}
 
@@ -628,6 +734,7 @@ export default function TenantDashboard() {
                   <th style={thStyle}>UTR / Reference ID</th>
                   <th style={thStyle}>Status</th>
                   <th style={thStyle}>Verification / Details</th>
+                  <th style={thStyle}>Official Bill</th>
                 </tr>
               </thead>
               <tbody>
@@ -667,6 +774,17 @@ export default function TenantDashboard() {
                           : p.status === 'rejected'
                           ? `Rejected: ${p.rejection_reason || 'See administration'}`
                           : 'Awaiting admin verification'}
+                      </td>
+                      <td style={tdStyle}>
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          onClick={() => openVerifiedBillModal(p.id)}
+                          style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: 'var(--font-size-xs)', padding: '4px 8px' }}
+                          title="View Official Verified Bill"
+                        >
+                          <FileText size={13} /> Bill
+                        </Button>
                       </td>
                     </tr>
                   );
@@ -953,6 +1071,16 @@ export default function TenantDashboard() {
             </div>
           </form>
         </Modal>
+      )}
+
+      {/* Official Verified Rent Bill Modal */}
+      {selectedInvoiceRecord && (
+        <RentInvoiceModal
+          isOpen={!!selectedInvoiceRecord}
+          onClose={() => setSelectedInvoiceRecord(null)}
+          record={selectedInvoiceRecord}
+          currentPG={data?.pgProfile}
+        />
       )}
     </div>
   );

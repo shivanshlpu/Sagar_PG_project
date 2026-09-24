@@ -5,26 +5,30 @@ import { useToast } from '../components/ui/Toast';
 import { useAuth } from '../hooks/useAuth';
 import { apiGet, apiPatch, apiPost, formatCurrency, extractReferenceId } from '../lib/api';
 import { formatDate } from '../lib/date';
-import { printElement } from '../lib/printHelper';
-import { CreditCard, Check, X, Printer, Receipt, Send, Plus } from 'lucide-react';
+import { CreditCard, Check, X, Send, Plus, FileText } from 'lucide-react';
+import { RentInvoiceModal, type RentInvoiceData } from '../components/billing/RentInvoiceModal';
 
 interface Payment {
   id: string;
-  tenant?: { full_name: string; email: string; phone?: string };
+  tenant_id?: string;
+  rent_record_id?: string | null;
+  tenant?: { full_name: string; email: string; phone?: string; room?: { room_number: string } };
   amount_paise: number;
   payment_method: string;
   status: string;
   created_at: string;
+  verified_at?: string | null;
   notes: string | null;
   rejection_reason?: string | null;
 }
 
 export default function AdminPayments() {
-  const { pg, pgName } = useAuth();
+  const { pg } = useAuth();
   const [payments, setPayments] = React.useState<Payment[]>([]);
   const [isLoading, setIsLoading] = React.useState(true);
   const [statusFilter, setStatusFilter] = React.useState('');
-  const [selectedReceipt, setSelectedReceipt] = React.useState<Payment | null>(null);
+  const [selectedInvoiceRecord, setSelectedInvoiceRecord] = React.useState<RentInvoiceData | null>(null);
+  const [loadingBillId, setLoadingBillId] = React.useState<string | null>(null);
   const [sendingWaId, setSendingWaId] = React.useState<string | null>(null);
 
   // Manual payment recording modal state
@@ -134,7 +138,7 @@ export default function AdminPayments() {
     if (status === 'rejected' && reason === null) return; // User cancelled
     const res = await apiPatch(`/payments/${id}/verify`, { status, rejection_reason: reason });
     if (res.success) {
-      showToast(status === 'verified' ? 'Payment verified & WhatsApp receipt sent!' : 'Payment rejected');
+      showToast(status === 'verified' ? 'Payment verified & official bill sent to resident WhatsApp!' : 'Payment rejected');
       loadPayments();
     } else {
       showToast(res.error || 'Failed', 'error');
@@ -146,15 +150,106 @@ export default function AdminPayments() {
       setSendingWaId(paymentId);
       const res = await apiPost(`/payments/${paymentId}/send-receipt`, {});
       if (res.success) {
-        showToast('Receipt sent to tenant WhatsApp successfully!');
+        showToast('Official verified bill sent to tenant WhatsApp successfully!');
       } else {
-        showToast(res.error || 'Failed to dispatch WhatsApp receipt', 'error');
+        showToast(res.error || 'Failed to dispatch WhatsApp bill', 'error');
       }
     } catch (err: any) {
-      showToast(err?.message || 'Failed to send receipt', 'error');
+      showToast(err?.message || 'Failed to send bill', 'error');
     } finally {
       setSendingWaId(null);
     }
+  }
+
+  async function handleOpenBill(payment: Payment) {
+    setLoadingBillId(payment.id);
+    let invoiceRecord: RentInvoiceData | null = null;
+
+    // 1. If payment has a linked rent record, fetch it
+    if (payment.rent_record_id) {
+      try {
+        const res = await apiGet<any>(`/rent/${payment.rent_record_id}`);
+        if (res.success && res.data) {
+          invoiceRecord = res.data;
+        }
+      } catch (e) {
+        console.warn('Could not load linked rent record:', e);
+      }
+    }
+
+    // 2. If not found, try resolving via tenant billing summary
+    if (!invoiceRecord && payment.tenant_id) {
+      try {
+        const summaryRes = await apiGet<any>(`/tenants/${payment.tenant_id}/billing-summary`);
+        if (summaryRes.success && summaryRes.data) {
+          const payMonth = payment.created_at ? payment.created_at.slice(0, 7) : new Date().toISOString().slice(0, 7);
+          const matched = summaryRes.data.rentRecords?.find((r: any) => r.month === payMonth) || summaryRes.data.currentDue;
+          if (matched && (matched.id || matched.rent_record_id)) {
+            const recId = matched.id || matched.rent_record_id;
+            try {
+              const fullRecRes = await apiGet<any>(`/rent/${recId}`);
+              if (fullRecRes.success && fullRecRes.data) {
+                invoiceRecord = fullRecRes.data;
+              }
+            } catch {
+              // fallback
+            }
+
+            if (!invoiceRecord) {
+              invoiceRecord = {
+                id: recId,
+                month: matched.month || payMonth,
+                rent_amount_paise: matched.rent_amount_paise || matched.base_rent_paise || payment.amount_paise,
+                late_fee_paise: matched.late_fee_paise || 0,
+                total_due_paise: matched.total_due_paise || payment.amount_paise,
+                status: payment.status === 'verified' ? 'paid' : (matched.status || payment.status),
+                due_date: matched.due_date || payment.created_at,
+                paid_date: payment.status === 'verified' ? (payment.verified_at || payment.created_at) : matched.paid_date,
+                notes: matched.notes || payment.notes,
+                tenant: {
+                  full_name: payment.tenant?.full_name || summaryRes.data.tenant?.full_name || 'Resident',
+                  phone: payment.tenant?.phone || summaryRes.data.tenant?.phone || '',
+                  email: payment.tenant?.email || summaryRes.data.tenant?.email,
+                },
+                room: {
+                  room_number: (payment.tenant as any)?.room?.room_number || summaryRes.data.tenant?.room_number || 'Unassigned',
+                },
+                pg: summaryRes.data.pgProfile || pg,
+              };
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('Could not resolve tenant billing summary:', e);
+      }
+    }
+
+    // 3. Fallback: synthesize RentInvoiceData from payment
+    if (!invoiceRecord) {
+      invoiceRecord = {
+        id: payment.id,
+        month: payment.created_at ? payment.created_at.slice(0, 7) : new Date().toISOString().slice(0, 7),
+        rent_amount_paise: payment.amount_paise,
+        late_fee_paise: 0,
+        total_due_paise: payment.amount_paise,
+        status: payment.status === 'verified' ? 'paid' : payment.status,
+        due_date: payment.created_at,
+        paid_date: payment.status === 'verified' ? (payment.verified_at || payment.created_at) : null,
+        notes: payment.notes,
+        tenant: {
+          full_name: payment.tenant?.full_name || 'Resident',
+          phone: payment.tenant?.phone || '',
+          email: payment.tenant?.email,
+        },
+        room: {
+          room_number: (payment.tenant as any)?.room?.room_number || 'Unassigned',
+        },
+        pg: pg as any,
+      };
+    }
+
+    setSelectedInvoiceRecord(invoiceRecord);
+    setLoadingBillId(null);
   }
 
   const columns: ResponsiveColumn<Payment>[] = [
@@ -277,8 +372,14 @@ export default function AdminPayments() {
             </div>
 
             <div style={{ display: 'flex', gap: '8px', marginTop: '12px', paddingTop: '12px', borderTop: '1px solid var(--color-border)', justifyContent: 'flex-end', alignItems: 'center', flexWrap: 'wrap' }}>
-              <Button size="sm" variant="secondary" onClick={() => setSelectedReceipt(payment)}>
-                <Receipt size={14} /> Receipt
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => handleOpenBill(payment)}
+                isLoading={loadingBillId === payment.id}
+                disabled={Boolean(loadingBillId && loadingBillId !== payment.id)}
+              >
+                <FileText size={14} /> View Bill
               </Button>
               <Button
                 size="sm"
@@ -286,7 +387,7 @@ export default function AdminPayments() {
                 onClick={() => sendWhatsAppReceipt(payment.id)}
                 isLoading={sendingWaId === payment.id}
                 disabled={Boolean(sendingWaId && sendingWaId !== payment.id)}
-                title="Send on WhatsApp"
+                title="Send Official Bill on WhatsApp"
               >
                 <Send size={14} /> Send WhatsApp
               </Button>
@@ -306,16 +407,17 @@ export default function AdminPayments() {
         actions={(row: Payment) => (
           <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
             <button
-              onClick={() => setSelectedReceipt(row)}
+              onClick={() => handleOpenBill(row)}
               style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-primary)', display: 'flex', alignItems: 'center', gap: '4px', fontSize: 'var(--font-size-xs)', padding: '4px 8px', borderRadius: 'var(--radius-sm)' }}
-              title="View & Print Receipt"
+              title="View Official Bill & Invoice"
+              disabled={loadingBillId === row.id}
             >
-              <Receipt size={15} /> Receipt
+              <FileText size={15} /> Bill
             </button>
             <button
               onClick={() => sendWhatsAppReceipt(row.id)}
               style={{ ...iconBtnStyle, color: 'var(--color-primary)', opacity: sendingWaId && sendingWaId !== row.id ? 0.5 : 1 }}
-              title="Send Receipt on WhatsApp"
+              title="Send Official Bill on WhatsApp"
               disabled={Boolean(sendingWaId)}
             >
               <Send size={15} />
@@ -356,111 +458,28 @@ export default function AdminPayments() {
         }
       />
 
-      {/* Printable Receipt Modal */}
-      {selectedReceipt && (
-        <Modal
-          isOpen={!!selectedReceipt}
-          onClose={() => setSelectedReceipt(null)}
-          title="Payment Receipt"
-          size="md"
-          footer={
-            <div className="modal-footer-responsive" style={{ width: '100%', display: 'flex', gap: '8px', justifyContent: 'space-between', flexWrap: 'wrap' }}>
-              <Button variant="secondary" onClick={() => setSelectedReceipt(null)}>Close</Button>
-              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                <Button
-                  variant="secondary"
-                  onClick={() => sendWhatsAppReceipt(selectedReceipt.id)}
-                  isLoading={sendingWaId === selectedReceipt.id}
-                  disabled={Boolean(sendingWaId && sendingWaId !== selectedReceipt.id)}
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-                >
-                  <Send size={15} /> Send on WhatsApp
-                </Button>
-                <Button onClick={() => printElement('printable-payment-receipt', `Receipt-REC-${selectedReceipt.id.slice(0, 8).toUpperCase()}`)}>
-                  <Printer size={16} /> Print Receipt
-                </Button>
-              </div>
-            </div>
-          }
-        >
-          <div id="printable-payment-receipt" style={{ padding: '8px 4px' }}>
-            {/* Header / PG details */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '2px solid var(--color-border)', paddingBottom: '16px', marginBottom: '16px' }}>
-              <div>
-                <h2 style={{ margin: 0, fontSize: 'var(--font-size-xl)', fontWeight: 700, color: 'var(--color-primary)' }}>
-                  {pg?.name || pgName || 'PG Management'}
-                </h2>
-                {pg?.address && <p style={{ margin: '4px 0 0', fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>{pg.address}</p>}
-                {pg?.phone && <p style={{ margin: '2px 0 0', fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>Phone: {pg.phone}</p>}
-              </div>
-              <div style={{ textAlign: 'right' }}>
-                <span style={{ fontSize: 'var(--font-size-xs)', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-text-muted)', fontWeight: 600 }}>RECEIPT</span>
-                <div style={{ fontSize: 'var(--font-size-sm)', fontWeight: 600, fontFamily: 'monospace', marginTop: '2px' }}>
-                  REC-{selectedReceipt.id.slice(0, 8).toUpperCase()}
-                </div>
-                <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', marginTop: '4px' }}>
-                  Date: {formatDate(selectedReceipt.created_at)}
-                </div>
-              </div>
-            </div>
-
-            {/* Receipt Summary Card */}
-            <div style={{ backgroundColor: 'var(--color-bg-surface-alt)', padding: '16px', borderRadius: 'var(--radius-md)', marginBottom: '20px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                <span style={{ fontSize: 'var(--font-size-xs)', textTransform: 'uppercase', color: 'var(--color-text-secondary)', fontWeight: 600 }}>Received From</span>
-                <Badge variant={getStatusBadgeVariant(selectedReceipt.status)}>{selectedReceipt.status.toUpperCase()}</Badge>
-              </div>
-              <div style={{ fontSize: 'var(--font-size-lg)', fontWeight: 700 }}>{selectedReceipt.tenant?.full_name || 'Resident'}</div>
-              {selectedReceipt.tenant?.email && <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>{selectedReceipt.tenant.email}</div>}
-              {selectedReceipt.tenant?.phone && <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>Phone: {selectedReceipt.tenant.phone}</div>}
-            </div>
-
-            {/* Receipt Details Table */}
-            <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '20px' }}>
-              <tbody>
-                <tr style={{ borderBottom: '1px solid var(--color-border)' }}>
-                  <td style={{ padding: '10px 12px', color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-sm)' }}>Payment Method</td>
-                  <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 600, textTransform: 'uppercase', fontSize: 'var(--font-size-sm)' }}>
-                    {selectedReceipt.payment_method}
-                  </td>
-                </tr>
-                <tr style={{ borderBottom: '1px solid var(--color-border)' }}>
-                  <td style={{ padding: '10px 12px', color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-sm)' }}>Payment Date</td>
-                  <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 500, fontSize: 'var(--font-size-sm)' }}>
-                    {formatDate(selectedReceipt.created_at)}
-                  </td>
-                </tr>
-                {selectedReceipt.notes && (
-                  <tr style={{ borderBottom: '1px solid var(--color-border)' }}>
-                    <td style={{ padding: '10px 12px', color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-sm)' }}>Transaction Notes</td>
-                    <td style={{ padding: '10px 12px', textAlign: 'right', fontSize: 'var(--font-size-sm)' }}>
-                      {selectedReceipt.notes}
-                    </td>
-                  </tr>
-                )}
-                {selectedReceipt.rejection_reason && (
-                  <tr style={{ borderBottom: '1px solid var(--color-border)' }}>
-                    <td style={{ padding: '10px 12px', color: 'var(--color-danger)', fontSize: 'var(--font-size-sm)' }}>Rejection Reason</td>
-                    <td style={{ padding: '10px 12px', textAlign: 'right', color: 'var(--color-danger)', fontSize: 'var(--font-size-sm)' }}>
-                      {selectedReceipt.rejection_reason}
-                    </td>
-                  </tr>
-                )}
-                <tr style={{ backgroundColor: 'var(--color-bg-surface-alt)' }}>
-                  <td style={{ padding: '14px 12px', fontWeight: 700, fontSize: 'var(--font-size-base)' }}>Total Amount Paid</td>
-                  <td style={{ padding: '14px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 700, fontSize: 'var(--font-size-xl)', color: 'var(--color-primary)' }}>
-                    {formatCurrency(selectedReceipt.amount_paise)}
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-
-            {/* Note & Security info */}
-            <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', textAlign: 'center', borderTop: '1px dashed var(--color-border)', paddingTop: '12px' }}>
-              This is an immutable digital receipt recorded by {pg?.name || pgName || 'PG Management'}. All dates are in DD/MM/YYYY format.
-            </div>
-          </div>
-        </Modal>
+      {/* Professional Redesigned Invoice & Bill Modal */}
+      {selectedInvoiceRecord && (
+        <RentInvoiceModal
+          isOpen={!!selectedInvoiceRecord}
+          onClose={() => setSelectedInvoiceRecord(null)}
+          record={selectedInvoiceRecord}
+          currentPG={pg}
+          onSendWhatsApp={async () => {
+            const foundPay = payments.find(p => p.rent_record_id === selectedInvoiceRecord.id || p.id === selectedInvoiceRecord.id);
+            if (foundPay) {
+              await sendWhatsAppReceipt(foundPay.id);
+            } else {
+              try {
+                await apiPost(`/rent/${selectedInvoiceRecord.id}/send-bill`, {});
+                showToast('Official verified bill sent to tenant WhatsApp!');
+              } catch {
+                showToast('Failed to send WhatsApp bill', 'error');
+              }
+            }
+          }}
+          isSendingWhatsApp={Boolean(sendingWaId)}
+        />
       )}
 
       {/* Record Payment Modal */}

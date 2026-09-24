@@ -20,7 +20,7 @@ export async function listPayments(
 
   let query = supabaseAdmin
     .from('payments')
-    .select('*, tenant:tenants(full_name, phone, email)', { count: 'exact' })
+    .select('*, tenant:tenants(full_name, phone, email, room:rooms(room_number, floor))', { count: 'exact' })
     .eq('pg_id', pgId);
 
   if (filters?.tenant_id) query = query.eq('tenant_id', filters.tenant_id);
@@ -163,16 +163,17 @@ export async function verifyPayment(
   if (error) throw new Error(error.message);
 
   // If verified, update the linked rent record or electricity bill status
+  let linkedRentRecordId = payment.rent_record_id;
   if (status === 'verified') {
-    if (payment.rent_record_id) {
+    if (linkedRentRecordId) {
       await supabaseAdmin
         .from('rent_records')
         .update({ status: 'paid', paid_date: new Date().toISOString(), updated_at: new Date().toISOString() })
-        .eq('id', payment.rent_record_id)
+        .eq('id', linkedRentRecordId)
         .eq('pg_id', pgId);
     } else if (payment.tenant_id) {
-      // Find latest pending/overdue rent record for this tenant and mark it paid
-      const { data: latestPending } = await supabaseAdmin
+      // Find matching rent record for this tenant: pending/overdue first, or matching payment month
+      let { data: targetRent } = await supabaseAdmin
         .from('rent_records')
         .select('id')
         .eq('pg_id', pgId)
@@ -182,16 +183,31 @@ export async function verifyPayment(
         .limit(1)
         .maybeSingle();
 
-      if (latestPending) {
+      if (!targetRent) {
+        const payMonth = payment.created_at ? payment.created_at.slice(0, 7) : new Date().toISOString().slice(0, 7);
+        const { data: monthRent } = await supabaseAdmin
+          .from('rent_records')
+          .select('id')
+          .eq('pg_id', pgId)
+          .eq('tenant_id', payment.tenant_id)
+          .eq('month', payMonth)
+          .maybeSingle();
+        targetRent = monthRent;
+      }
+
+      if (targetRent) {
+        linkedRentRecordId = targetRent.id;
+        payment.rent_record_id = targetRent.id;
+
         await supabaseAdmin
           .from('rent_records')
           .update({ status: 'paid', paid_date: new Date().toISOString(), updated_at: new Date().toISOString() })
-          .eq('id', latestPending.id)
+          .eq('id', targetRent.id)
           .eq('pg_id', pgId);
 
         await supabaseAdmin
           .from('payments')
-          .update({ rent_record_id: latestPending.id })
+          .update({ rent_record_id: targetRent.id })
           .eq('id', id);
       }
     }
@@ -226,11 +242,11 @@ export async function verifyPayment(
     details: { status, rejection_reason: rejectionReason },
   });
 
-  // If verified, send automated official WhatsApp verified bill / receipt to the resident
+  // If verified, automatically send official WhatsApp verified bill / receipt with PG branding
   if (status === 'verified') {
     try {
-      if (payment.rent_record_id) {
-        await sendRentBillWhatsApp(pgId, payment.rent_record_id);
+      if (linkedRentRecordId) {
+        await sendRentBillWhatsApp(pgId, linkedRentRecordId);
       } else {
         await sendPaymentReceiptWhatsApp(pgId, id);
       }
@@ -251,6 +267,31 @@ export async function sendPaymentReceiptWhatsApp(pgId: string, paymentId: string
     .single();
 
   if (error || !payment) throw new Error('Payment record not found');
+
+  // If this payment is linked to a rent record (or we can find the matching monthly record), dispatch the official branded bill
+  let rentRecordId = payment.rent_record_id;
+  if (!rentRecordId && payment.tenant_id) {
+    const payMonth = payment.created_at ? payment.created_at.slice(0, 7) : new Date().toISOString().slice(0, 7);
+    const { data: rRecord } = await supabaseAdmin
+      .from('rent_records')
+      .select('id')
+      .eq('pg_id', pgId)
+      .eq('tenant_id', payment.tenant_id)
+      .or(`month.eq.${payMonth},status.eq.paid`)
+      .order('month', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (rRecord) {
+      rentRecordId = rRecord.id;
+      await supabaseAdmin.from('payments').update({ rent_record_id: rRecord.id }).eq('id', paymentId);
+    }
+  }
+
+  if (rentRecordId) {
+    return await sendRentBillWhatsApp(pgId, rentRecordId);
+  }
+
   if (!payment.tenant?.phone) throw new Error('Tenant has no registered phone number');
 
   const { data: pg } = await supabaseAdmin
