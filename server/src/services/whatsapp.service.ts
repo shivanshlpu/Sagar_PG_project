@@ -2,8 +2,6 @@ import makeWASocket, {
   DisconnectReason,
   useMultiFileAuthState,
   fetchLatestBaileysVersion,
-  fetchLatestWaWebVersion,
-  Browsers,
 } from '@whiskeysockets/baileys';
 import QRCode from 'qrcode';
 import path from 'path';
@@ -331,43 +329,25 @@ export function getAllSessionsStatus(): WhatsAppState[] {
   return result;
 }
 
-let cachedWaVersion: [number, number, number] | null = null;
-let lastVersionFetchTime = 0;
+let cachedBaileysVersion: [number, number, number] | null = null;
 
 /**
- * Fetches the live WhatsApp Web protocol version from web.whatsapp.com/sw.js.
- * This guarantees handshake compatibility and prevents "Can't link device / internet connection error".
+ * Returns the stable Baileys-verified protocol version.
+ * Using Baileys' verified version ensures compatibility with internal protobuf definitions
+ * and avoids handshake failures or 'Can't link device / internet connection error'.
  */
-export async function getWaVersion(): Promise<[number, number, number]> {
-  const now = Date.now();
-  if (cachedWaVersion && now - lastVersionFetchTime < 6 * 60 * 60 * 1000) {
-    return cachedWaVersion;
-  }
+export async function getBaileysVersion(): Promise<[number, number, number]> {
+  if (cachedBaileysVersion) return cachedBaileysVersion;
   try {
-    const waWebResult = await fetchLatestWaWebVersion({ timeout: 5000 } as any);
-    if (waWebResult?.version && Array.isArray(waWebResult.version) && waWebResult.version.length === 3) {
-      cachedWaVersion = waWebResult.version as [number, number, number];
-      lastVersionFetchTime = now;
-      console.log(`[WhatsApp] Using live WhatsApp Web version: ${cachedWaVersion.join('.')}`);
-      return cachedWaVersion;
+    const { version } = await fetchLatestBaileysVersion();
+    if (version && Array.isArray(version) && version.length === 3) {
+      cachedBaileysVersion = version as [number, number, number];
+      return cachedBaileysVersion;
     }
   } catch (err: any) {
-    console.warn('[WhatsApp] Could not fetch live WaWeb version, trying Baileys fallback:', err?.message);
+    console.warn('[WhatsApp] Could not fetch latest Baileys version:', err?.message);
   }
-
-  try {
-    const baileysResult = await fetchLatestBaileysVersion();
-    if (baileysResult?.version && Array.isArray(baileysResult.version) && baileysResult.version.length === 3) {
-      cachedWaVersion = baileysResult.version as [number, number, number];
-      lastVersionFetchTime = now;
-      return cachedWaVersion;
-    }
-  } catch (err: any) {
-    console.warn('[WhatsApp] Could not fetch Baileys version:', err?.message);
-  }
-
-  // Modern fallback if all network requests fail
-  return [2, 3000, 1048361770];
+  return [2, 3000, 1043857760];
 }
 
 /**
@@ -456,20 +436,15 @@ export async function connectWhatsApp(
 
   try {
     const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
-    const version = await getWaVersion();
+    const version = await getBaileysVersion();
 
     const sock = makeWASocket({
       version,
       auth: state,
-      browser: Browsers.ubuntu('Chrome'), // Proven standard desktop tuple: ['Ubuntu', 'Chrome', '22.04.4']
       printQRInTerminal: false,
-      qrTimeout: 60000, // 60s per QR code (prevents 20s premature expiry during scanning)
       connectTimeoutMs: 60000,
       defaultQueryTimeoutMs: 60000,
       keepAliveIntervalMs: 30000,
-      syncFullHistory: false, // Critical: stops phone from timing out/freezing while uploading gigabytes of chat history
-      markOnlineOnConnect: false,
-      generateHighQualityLinkPreview: false,
     });
 
     session.sock = sock;
@@ -515,6 +490,9 @@ export async function connectWhatsApp(
           session.reconnectTimer = null;
         }
 
+        // Clear active socket reference on close so future attempts open a clean socket
+        session.sock = null;
+
         // Case 1: Post-scan handshake restart (515) - Essential for completing pairing!
         if (isRestartRequired) {
           console.log(`[WhatsApp ${pgId}] Authentication restart required (515) - completing pairing handshake immediately...`);
@@ -529,8 +507,10 @@ export async function connectWhatsApp(
           return;
         }
 
-        // Case 2: Permanent logout or corrupted credentials - Purge storage
-        if (isLoggedOut || isBadSession) {
+        // Case 2: Permanent logout of an established session, or bad credentials (500)
+        // CRITICAL: Only purge if this was an ALREADY-ESTABLISHED active session (hasExistingSession) OR badSession (500).
+        // If it's a 401 during the initial pairing handshake, do NOT purge the credentials!
+        if ((isLoggedOut && hasExistingSession(pgId)) || isBadSession) {
           session.status = 'disconnected';
           session.currentQr = null;
           session.pairingCode = null;
@@ -640,12 +620,17 @@ export async function connectWhatsApp(
  * Requests an 8-character pairing code for phone-number linking.
  */
 export async function requestPairingCode(phoneNumber: string, pgId: string = 'default'): Promise<string> {
-  const cleanNumber = phoneNumber.replace(/\D/g, '');
+  const cleanNumber = normalizePhoneNumber(phoneNumber);
   if (cleanNumber.length < 10) {
-    throw new Error('Please provide a valid 10-15 digit phone number with country code (e.g. 919876543210)');
+    throw new Error('Please provide a valid 10-15 digit phone number (e.g. 9876543210 or 919876543210)');
   }
 
   const session = getOrCreateSession(pgId);
+
+  // If already connected, no pairing needed
+  if (session.status === 'connected' && session.sock) {
+    throw new Error('WhatsApp is already connected for this PG.');
+  }
 
   // Ensure socket is created
   if (!session.sock) {
@@ -660,14 +645,22 @@ export async function requestPairingCode(phoneNumber: string, pgId: string = 'de
         clearTimeout(timer);
         resolve();
       });
+      session.qrResolvers.push(() => {
+        clearTimeout(timer);
+        resolve();
+      });
     });
+  }
+
+  if (!session.sock) {
+    throw new Error('Unable to initialize WhatsApp connection. Please try again.');
   }
 
   try {
     const code = await session.sock.requestPairingCode(cleanNumber);
     session.pairingCode = code;
     session.status = 'pairing';
-    console.log(`[WhatsApp ${pgId}] Pairing code generated: ${code} for ${cleanNumber}`);
+    console.log(`[WhatsApp ${pgId}] Pairing code generated: ${code} for +${cleanNumber}`);
     return code;
   } catch (err: any) {
     console.error(`[WhatsApp ${pgId} Pairing Code Error]:`, err.message);
@@ -866,6 +859,9 @@ export async function initWhatsAppIfSessionExists(): Promise<void> {
  */
 export function normalizePhoneNumber(phone: string): string {
   let clean = phone.replace(/\D/g, '');
+  if (clean.startsWith('00')) {
+    clean = clean.slice(2);
+  }
   if (clean.length === 10) {
     clean = `91${clean}`;
   } else if (clean.length === 11 && clean.startsWith('0')) {

@@ -534,12 +534,23 @@ export default function AdminSettings() {
   }
 
   async function handleRequestPairingCode() {
-    if (!pairPhone.trim()) {
-      showToast('Enter your phone number with country code (e.g. 919876543210)', 'error');
+    let clean = pairPhone.trim().replace(/\D/g, '');
+    if (!clean) {
+      showToast('Enter your 10-digit WhatsApp phone number', 'error');
+      return;
+    }
+    if (clean.startsWith('00')) clean = clean.slice(2);
+    if (clean.length === 10) {
+      clean = `91${clean}`;
+    } else if (clean.length === 11 && clean.startsWith('0')) {
+      clean = `91${clean.slice(1)}`;
+    }
+    if (clean.length < 11 || clean.length > 15) {
+      showToast('Please enter a valid 10-digit mobile number', 'error');
       return;
     }
     setPairLoading(true);
-    const res = await apiPost<{ pairingCode: string }>('/whatsapp/pairing-code', { phone: pairPhone.trim() });
+    const res = await apiPost<{ pairingCode: string }>('/whatsapp/pairing-code', { phone: clean });
     if (res.success && res.data) {
       const code = res.data.pairingCode;
       setWaData((prev) => ({
@@ -547,7 +558,7 @@ export default function AdminSettings() {
         status: 'pairing',
         pairingCode: code,
       }));
-      showToast('Pairing code generated! Check your WhatsApp.');
+      showToast(`Pairing code generated for +${clean.slice(0, 2)} ${clean.slice(2)}! Enter it in WhatsApp.`);
     } else {
       showToast(res.error || 'Failed to generate pairing code', 'error');
     }
@@ -1619,12 +1630,35 @@ export default function AdminSettings() {
               {/* METHOD 2: PAIRING CODE (CONNECTION STRING) */}
               {connectionMethod === 'code' && (
                 <div style={{ maxWidth: '520px' }}>
-                  <FormField label="WhatsApp Phone Number" required hint="Include country code without + or dashes (e.g. 919876543210 for India)">
-                    <div style={{ display: 'flex', gap: '8px' }}>
+                  <FormField
+                    label="WhatsApp Phone Number"
+                    required
+                    hint="Enter your 10-digit number (e.g. 9876543210). Indian code (+91) is automatically applied."
+                  >
+                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          padding: '0 12px',
+                          height: '42px',
+                          backgroundColor: 'var(--color-bg-surface-alt)',
+                          border: '1px solid var(--color-border)',
+                          borderRadius: 'var(--radius-md)',
+                          fontSize: 'var(--font-size-sm)',
+                          fontWeight: 600,
+                          color: 'var(--color-text)',
+                          userSelect: 'none',
+                        }}
+                      >
+                        🇮🇳 +91
+                      </div>
                       <Input
-                        placeholder="e.g. 919876543210"
+                        placeholder="e.g. 9876543210"
                         value={pairPhone}
                         onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPairPhone(e.target.value)}
+                        style={{ flex: 1 }}
                       />
                       <Button onClick={handleRequestPairingCode} isLoading={pairLoading}>
                         Get Code
@@ -1661,10 +1695,11 @@ export default function AdminSettings() {
                           How to enter on WhatsApp:
                         </p>
                         <ol style={{ paddingLeft: '18px', fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', lineHeight: 1.6, margin: 0 }}>
-                          <li>Open <strong>WhatsApp</strong> on your phone.</li>
-                          <li>Tap <strong>Settings</strong> &gt; <strong>Linked Devices</strong>.</li>
-                          <li>Tap <strong>Link a Device</strong> &gt; <strong>Link with phone number instead</strong>.</li>
-                          <li>Type in the 8-character code shown above.</li>
+                          <li>Open <strong>WhatsApp</strong> on your mobile phone.</li>
+                          <li>Tap <strong>Settings</strong> (iOS) or <strong>Three dots</strong> (Android) &gt; <strong>Linked Devices</strong>.</li>
+                          <li>Tap <strong>Link a Device</strong>.</li>
+                          <li>Tap <strong>Link with phone number instead</strong> at the bottom of the scanner screen.</li>
+                          <li>Type the 8-character code: <strong>{waData.pairingCode.length === 8 ? `${waData.pairingCode.slice(0, 4)} - ${waData.pairingCode.slice(4)}` : waData.pairingCode}</strong>.</li>
                         </ol>
                       </div>
                     </div>
