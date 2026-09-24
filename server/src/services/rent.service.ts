@@ -3,8 +3,9 @@ import { logAudit } from './auditLog.service';
 import { getBillingSettings, getWhatsAppMessageTemplates, renderWhatsAppTemplate } from './settings.service';
 import { sendWhatsAppMessage } from './whatsapp.service';
 import { getPG } from './pg.service';
-import { formatDateDMY, formatMonthMY } from '../utils/date';
+import { formatDateDMY, formatMonthMY, isSentToday, formatReminderTimeIST } from '../utils/date';
 import { generateRentInvoicePdf } from './invoicePdf.service';
+import { sendSingleRentReminder } from './reminders.service';
 
 export function calculateTenantDueDate(month: string, moveInDate?: string | null, fallbackDay: number = 1): string {
   let day = fallbackDay;
@@ -623,7 +624,7 @@ export async function getTenantBillingSummary(pgId: string, tenantId: string) {
     const elRate = elForMonth?.rate_per_unit_paise ?? parsedNotes.electricity_rate_per_unit_paise ?? defaultRate;
     const elAmount = elForMonth?.total_amount_paise ?? parsedNotes.electricity_amount_paise ?? (elUnits * elRate);
     const late = latestPendingRecord.late_fee_paise || 0;
-    const total = parsedNotes.total_due_paise ?? latestPendingRecord.total_due_paise ?? (base + maint + elAmount + late);
+    const total = base + maint + elAmount + late;
 
     currentDue = {
       rent_record_id: latestPendingRecord.id,
@@ -772,6 +773,9 @@ export interface RentTrackingItem {
   formatted_amount: string;
   reminder_count: number;
   last_reminder_sent_at: string | null;
+  last_reminder_sent_formatted: string | null;
+  reminder_sent_today: boolean;
+  electricity_finalized: boolean;
   next_reminder_at: string | null;
   rent_record_id: string | null;
   payment: {
@@ -793,6 +797,8 @@ export interface RentTrackingResponse {
     overdue_count: number;
     verification_pending_count: number;
     paid_count: number;
+    reminders_sent_today_count: number;
+    reminders_pending_today_count: number;
     month: string;
   };
   data: RentTrackingItem[];
@@ -875,6 +881,8 @@ export async function getRentTracking(
   let overdueCount = 0;
   let verificationPendingCount = 0;
   let paidCount = 0;
+  let remindersSentTodayCount = 0;
+  let remindersPendingTodayCount = 0;
 
   const items: RentTrackingItem[] = [];
 
@@ -893,9 +901,15 @@ export async function getRentTracking(
 
     // Electricity bill (if any)
     const elBill = elBillMap.get(tenant.id);
-    const elUnits = elBill?.units_consumed || 0;
-    const elRate = elBill?.rate_per_unit_paise || defaultRatePaise;
-    const elAmount = elBill?.total_amount_paise || (elUnits * elRate);
+    const isElectricityFinalized = Boolean(
+      elBill && (
+        elBill.units_consumed > 0 ||
+        elBill.current_reading > 0 ||
+        elBill.total_amount_paise > 0 ||
+        elBill.status === 'pending' ||
+        elBill.status === 'paid'
+      )
+    );
 
     // Existing rent record (if any)
     const existingRent = rentRecordMap.get(tenant.id);
@@ -904,9 +918,36 @@ export async function getRentTracking(
       try { parsedNotes = JSON.parse(existingRent.notes); } catch {}
     }
 
-    const maintPaise = parsedNotes.maintenance_paise ?? defaultMaintenancePaise;
-    const lateFeePaise = existingRent?.late_fee_paise || 0;
-    const totalDuePaise = existingRent?.total_due_paise || (baseRentPaise + maintPaise + elAmount + lateFeePaise);
+    // Accurate itemized dues calculation
+    const effectiveBaseRent = existingRent?.rent_amount_paise || baseRentPaise;
+    const effectiveMaint = parsedNotes.maintenance_paise ?? defaultMaintenancePaise;
+    const effectiveElUnits = elBill ? (elBill.units_consumed || 0) : (parsedNotes.electricity_units || 0);
+    const effectiveElRate = elBill ? (elBill.rate_per_unit_paise || defaultRatePaise) : (parsedNotes.electricity_rate_per_unit_paise || defaultRatePaise);
+    const effectiveElAmount = elBill ? (elBill.total_amount_paise || (effectiveElUnits * effectiveElRate)) : (parsedNotes.electricity_amount_paise || 0);
+    const effectiveLateFee = existingRent?.late_fee_paise || 0;
+    const totalDuePaise = effectiveBaseRent + effectiveMaint + effectiveElAmount + effectiveLateFee;
+
+    // Proactive background DB sync if rent record total_due_paise or electricity amount was stale
+    if (existingRent && (existingRent.total_due_paise !== totalDuePaise || parsedNotes.electricity_amount_paise !== effectiveElAmount)) {
+      const updatedNotes = JSON.stringify({
+        ...parsedNotes,
+        base_rent_paise: effectiveBaseRent,
+        maintenance_paise: effectiveMaint,
+        electricity_bill_id: elBill?.id || parsedNotes.electricity_bill_id || null,
+        electricity_units: effectiveElUnits,
+        electricity_rate_per_unit_paise: effectiveElRate,
+        electricity_amount_paise: effectiveElAmount,
+        total_due_paise: totalDuePaise,
+      });
+      void supabaseAdmin
+        .from('rent_records')
+        .update({
+          total_due_paise: totalDuePaise,
+          notes: updatedNotes,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', existingRent.id);
+    }
 
     // Payment state evaluation
     const tenantPayments = tenantPaymentsMap.get(tenant.id) || [];
@@ -963,9 +1004,18 @@ export async function getRentTracking(
       }
     }
 
-    // Reminder tracking
+    // Reminder tracking with strict daily detection
     const reminderCount = parsedNotes.reminder_count || 0;
     const lastReminderSentAt = parsedNotes.last_reminder_sent_at || null;
+    const reminderSentToday = isSentToday(lastReminderSentAt);
+    const lastReminderSentFormatted = formatReminderTimeIST(lastReminderSentAt);
+
+    if (reminderSentToday) {
+      remindersSentTodayCount++;
+    } else if (lifecycleStatus === 'OVERDUE' || lifecycleStatus === 'DUE_TODAY') {
+      remindersPendingTodayCount++;
+    }
+
     let nextReminderAt: string | null = null;
     if (lifecycleStatus !== 'PAID' && lifecycleStatus !== 'PAYMENT_SUBMITTED') {
       if (diffDays <= 0) {
@@ -1005,15 +1055,18 @@ export async function getRentTracking(
       is_due_today: isDueToday,
       status: lifecycleStatus,
       status_label: statusLabel,
-      base_rent_paise: baseRentPaise,
-      maintenance_paise: maintPaise,
-      electricity_units: elUnits,
-      electricity_amount_paise: elAmount,
-      late_fee_paise: lateFeePaise,
+      base_rent_paise: effectiveBaseRent,
+      maintenance_paise: effectiveMaint,
+      electricity_units: effectiveElUnits,
+      electricity_amount_paise: effectiveElAmount,
+      late_fee_paise: effectiveLateFee,
       total_due_paise: totalDuePaise,
       formatted_amount: (totalDuePaise / 100).toLocaleString('en-IN', { minimumFractionDigits: 2 }),
       reminder_count: reminderCount,
       last_reminder_sent_at: lastReminderSentAt,
+      last_reminder_sent_formatted: lastReminderSentFormatted,
+      reminder_sent_today: reminderSentToday,
+      electricity_finalized: isElectricityFinalized,
       next_reminder_at: nextReminderAt,
       rent_record_id: existingRent?.id || null,
       payment: activePayment ? {
@@ -1051,6 +1104,8 @@ export async function getRentTracking(
       overdue_count: overdueCount,
       verification_pending_count: verificationPendingCount,
       paid_count: paidCount,
+      reminders_sent_today_count: remindersSentTodayCount,
+      reminders_pending_today_count: remindersPendingTodayCount,
       month,
     },
     data: items,
@@ -1059,55 +1114,14 @@ export async function getRentTracking(
 
 /**
  * Sends a rent due reminder / bill to an individual tenant.
- * Safely anchors or creates the rent record if not yet generated,
- * dispatches the WhatsApp message, and increments the cycle reminder counter.
+ * Uses sendSingleRentReminder with dual-scenario messaging and strict 1 message per day enforcement.
  */
-export async function sendTenantDueReminder(pgId: string, tenantId: string, targetMonth?: string) {
-  const now = new Date();
-  const month = targetMonth || now.toISOString().slice(0, 7);
-
-  // 1. Get or create rent record for this tenant and month so we have a persistent record
-  let { data: record } = await supabaseAdmin
-    .from('rent_records')
-    .select('*')
-    .eq('pg_id', pgId)
-    .eq('tenant_id', tenantId)
-    .eq('month', month)
-    .maybeSingle();
-
-  if (!record) {
-    const created = await generateRentRecords(pgId, month, [tenantId]);
-    if (created && created.length > 0) {
-      record = created[0];
-    } else {
-      throw new Error('Could not initialize rent record for tenant');
-    }
-  }
-
-  // 2. Dispatch bill / reminder via WhatsApp
-  const result = await sendRentBillWhatsApp(pgId, record.id);
-
-  // 3. Increment reminder counter in notes
-  let parsedNotes: any = {};
-  if (record.notes) {
-    try { parsedNotes = JSON.parse(record.notes); } catch {}
-  }
-  const currentCount = typeof parsedNotes.reminder_count === 'number' ? parsedNotes.reminder_count : 0;
-  const newCount = currentCount + 1;
-  const nowIso = new Date().toISOString();
-
-  await supabaseAdmin
-    .from('rent_records')
-    .update({
-      notes: JSON.stringify({
-        ...parsedNotes,
-        reminder_count: newCount,
-        last_reminder_sent_at: nowIso,
-      }),
-      updated_at: nowIso,
-    })
-    .eq('id', record.id);
-
-  return { ...result, reminder_count: newCount, last_reminder_sent_at: nowIso };
+export async function sendTenantDueReminder(
+  pgId: string,
+  tenantId: string,
+  targetMonth?: string,
+  force: boolean = false
+) {
+  return await sendSingleRentReminder(pgId, tenantId, targetMonth, force);
 }
 

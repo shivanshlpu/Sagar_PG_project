@@ -38,13 +38,13 @@ router.get('/tracking', authorize('admin'), async (req: Request, res: Response) 
 // POST /rent/remind-tenant [Admin] — send due reminder to a specific tenant
 router.post('/remind-tenant', authorize('admin'), async (req: Request, res: Response) => {
   try {
-    const { tenant_id, month } = req.body;
+    const { tenant_id, month, force } = req.body;
     if (!tenant_id) {
       res.status(400).json({ success: false, error: 'tenant_id is required' });
       return;
     }
-    const data = await rentService.sendTenantDueReminder(req.user!.pgId, tenant_id, month);
-    res.json({ success: true, data });
+    const data = await rentService.sendTenantDueReminder(req.user!.pgId, tenant_id, month, Boolean(force));
+    res.json({ success: data.success, data, message: data.message });
   } catch (err) {
     res.status(400).json({ success: false, error: (err as Error).message });
   }

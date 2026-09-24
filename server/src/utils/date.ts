@@ -36,3 +36,45 @@ export function formatMonthMY(monthInput?: string | null): string {
   return monthInput;
 }
 
+/**
+ * Checks if a given ISO timestamp occurred on today's calendar date in Indian Standard Time (IST).
+ * Strictly guarantees that at most 1 reminder message is dispatched per day per tenant.
+ */
+export function isSentToday(isoDateString?: string | null): boolean {
+  if (!isoDateString) return false;
+  const sentDate = new Date(isoDateString);
+  if (isNaN(sentDate.getTime())) return false;
+  const sentIST = sentDate.toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }); // YYYY-MM-DD
+  const nowIST = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }); // YYYY-MM-DD
+  return sentIST === nowIST;
+}
+
+/**
+ * Human-friendly format for last reminder sent time in IST (e.g., "Today, 10:30 AM", "Yesterday, 04:15 PM")
+ */
+export function formatReminderTimeIST(isoDateString?: string | null): string | null {
+  if (!isoDateString) return null;
+  const d = new Date(isoDateString);
+  if (isNaN(d.getTime())) return null;
+
+  const nowIST = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+  const dIST = d.toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+  const timeStr = d.toLocaleTimeString('en-IN', {
+    timeZone: 'Asia/Kolkata',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+
+  if (dIST === nowIST) {
+    return `Today, ${timeStr}`;
+  }
+
+  const yesterday = new Date(Date.now() - 86400000).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+  if (dIST === yesterday) {
+    return `Yesterday, ${timeStr}`;
+  }
+
+  return `${formatDateDMY(isoDateString)}, ${timeStr}`;
+}
+
+

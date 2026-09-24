@@ -1,6 +1,7 @@
 import { supabaseAdmin } from '../config/supabase';
 import { logAudit } from './auditLog.service';
 import { getBillingSettings } from './settings.service';
+import { generateRentRecords } from './rent.service';
 
 export async function listElectricityBills(
   pgId: string,
@@ -175,6 +176,12 @@ export async function createElectricityBill(
         })
         .eq('id', rentRecord.id)
         .eq('pg_id', pgId);
+    } else {
+      try {
+        await generateRentRecords(pgId, billData.month, [billData.tenant_id]);
+      } catch (genErr) {
+        console.warn('[Electricity] Notice auto-generating rent record on bill creation:', genErr);
+      }
     }
   } catch (syncErr) {
     console.error('Failed to sync electricity bill with rent record:', syncErr);
@@ -297,6 +304,12 @@ export async function updateElectricityBill(
         })
         .eq('id', rentRecord.id)
         .eq('pg_id', pgId);
+    } else {
+      try {
+        await generateRentRecords(pgId, targetMonth, [existingBill.tenant_id]);
+      } catch (genErr) {
+        console.warn('[Electricity] Notice auto-generating rent record on bill update:', genErr);
+      }
     }
   } catch (syncErr) {
     console.error('Failed to sync updated electricity bill with rent record:', syncErr);

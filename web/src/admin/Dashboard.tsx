@@ -10,7 +10,6 @@ import {
   Banknote,
   MessageSquareWarning,
   Zap,
-  CreditCard,
   Megaphone,
   Package,
   BarChart3,
@@ -144,7 +143,7 @@ export default function AdminDashboard() {
         <MetricCard
           label="Rent Pending Count"
           value={data?.rent.pending || 0}
-          icon={<CreditCard size={22} />}
+          icon={<Banknote size={22} />}
           onClick={() => setIsPendingRentOpen(true)}
         />
         <MetricCard
@@ -185,7 +184,6 @@ export default function AdminDashboard() {
             { title: 'Rooms & Beds', to: '/admin/rooms', icon: DoorOpen, badge: `${data?.rooms.available || 0} open`, color: '#0284c7' },
             { title: 'Rent', to: '/admin/rent', icon: Banknote, badge: `${data?.rent.pending || 0} due`, color: '#16a34a' },
             { title: 'Electricity', to: '/admin/electricity', icon: Zap, color: '#d97706' },
-            { title: 'Payments', to: '/admin/payments', icon: CreditCard, color: '#7c3aed' },
             { title: 'Complaints', to: '/admin/complaints', icon: MessageSquareWarning, badge: `${(data?.complaints.open || 0) + (data?.complaints.inProgress || 0)} open`, color: '#e11d48' },
             { title: 'Announcements', to: '/admin/announcements', icon: Megaphone, color: '#0d9488' },
             { title: 'Assets', to: '/admin/assets', icon: Package, color: '#4b5563' },
@@ -259,7 +257,7 @@ export default function AdminDashboard() {
             </p>
           </div>
           <NavLink
-            to="/admin/payments"
+            to="/admin/rent"
             style={{
               display: 'flex',
               alignItems: 'center',

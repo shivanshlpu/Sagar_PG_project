@@ -3,7 +3,6 @@ import {
   Home,
   DoorOpen,
   Banknote,
-  CreditCard,
   Zap,
   MessageSquareWarning,
   LayoutDashboard,
@@ -119,30 +118,7 @@ export function MobileNav() {
             <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100%', lineHeight: 1.1 }}>Rent Tracking</span>
           </NavLink>
 
-          <NavLink
-            to="/admin/payments"
-            style={({ isActive }) => ({
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '2px',
-              textDecoration: 'none',
-              color: isActive ? 'var(--color-primary)' : 'var(--color-text-muted)',
-              fontSize: '9.5px',
-              fontWeight: isActive ? 700 : 500,
-              flex: 1,
-              minWidth: 0,
-              height: '100%',
-              padding: '4px 2px',
-              transition: 'color 150ms ease',
-              textAlign: 'center',
-              whiteSpace: 'nowrap',
-            })}
-          >
-            <CreditCard size={19} />
-            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100%', lineHeight: 1.1 }}>Payments</span>
-          </NavLink>
+
 
           <NavLink
             to="/admin/electricity"

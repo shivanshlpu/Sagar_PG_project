@@ -21,7 +21,6 @@ import AdminRooms from './admin/Rooms';
 import AdminTenants from './admin/Tenants';
 import AdminRent from './admin/Rent';
 import AdminElectricity from './admin/Electricity';
-import AdminPayments from './admin/Payments';
 import AdminComplaints from './admin/Complaints';
 import AdminAnnouncements from './admin/Announcements';
 import AdminAssets from './admin/Assets';
@@ -232,7 +231,7 @@ function AppRoutes() {
           <Route path="/admin/tenants" element={<AdminTenants />} />
           <Route path="/admin/rent" element={<AdminRent />} />
           <Route path="/admin/electricity" element={<AdminElectricity />} />
-          <Route path="/admin/payments" element={<AdminPayments />} />
+          <Route path="/admin/payments" element={<Navigate to="/admin/rent" replace />} />
           <Route path="/admin/complaints" element={<AdminComplaints />} />
           <Route path="/admin/announcements" element={<AdminAnnouncements />} />
           <Route path="/admin/assets" element={<AdminAssets />} />

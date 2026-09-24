@@ -22,7 +22,6 @@ import {
   CreditCard,
   RefreshCw,
   Search,
-  MessageSquare,
 } from 'lucide-react';
 import { RentInvoiceModal, type RentInvoiceData } from '../components/billing/RentInvoiceModal';
 
@@ -52,6 +51,9 @@ export interface RentTrackingItem {
   formatted_amount: string;
   reminder_count: number;
   last_reminder_sent_at: string | null;
+  last_reminder_sent_formatted?: string | null;
+  reminder_sent_today?: boolean;
+  electricity_finalized?: boolean;
   next_reminder_at: string | null;
   rent_record_id: string | null;
   payment: {
@@ -72,6 +74,8 @@ export interface RentTrackingSummary {
   overdue_count: number;
   verification_pending_count: number;
   paid_count: number;
+  reminders_sent_today_count?: number;
+  reminders_pending_today_count?: number;
   month: string;
 }
 
@@ -171,18 +175,26 @@ export default function AdminRent() {
 
   // Send WhatsApp reminder / bill to an individual tenant
   async function sendReminderToTenant(item: RentTrackingItem) {
+    if (item.reminder_sent_today) {
+      const confirmResend = window.confirm(
+        `Today's daily reminder was already sent to ${item.full_name} (${item.last_reminder_sent_formatted || 'earlier today'}).\n\nThe PG system enforces 1 message per day to prevent duplicate spam.\n\nDo you want to send another message anyway?`
+      );
+      if (!confirmResend) return;
+    }
+
     try {
       setSendingWaTenantId(item.tenant_id);
-      const res = await apiPost<{ reminder_count?: number; last_reminder_sent_at?: string }>('/rent/remind-tenant', {
+      const res = await apiPost<{ reminder_count?: number; last_reminder_sent_at?: string; already_sent_today?: boolean; message?: string }>('/rent/remind-tenant', {
         tenant_id: item.tenant_id,
         month: item.month,
+        force: Boolean(item.reminder_sent_today),
       });
 
       if (res.success) {
-        showToast(`WhatsApp reminder #${res.data?.reminder_count || (item.reminder_count + 1)} dispatched to ${item.full_name}!`);
+        showToast((res as any).message || `WhatsApp reminder dispatched to ${item.full_name}!`);
         loadTracking();
       } else {
-        showToast(res.error || 'Failed to send WhatsApp reminder', 'error');
+        showToast((res as any).message || res.error || 'Failed to send WhatsApp reminder', 'error');
       }
     } catch (err: any) {
       showToast(err?.message || 'Failed to send reminder', 'error');
@@ -471,10 +483,22 @@ export default function AdminRent() {
           <div className="tabular-nums" style={{ fontWeight: 700, color: 'var(--color-primary)' }}>
             {formatCurrency(r.total_due_paise)}
           </div>
-          <div style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>
-            Rent ₹{(r.base_rent_paise / 100).toLocaleString('en-IN')}
-            {r.electricity_amount_paise > 0 ? ` + Elec ₹${(r.electricity_amount_paise / 100).toLocaleString('en-IN')}` : ''}
-            {r.maintenance_paise > 0 ? ` + Maint ₹${(r.maintenance_paise / 100).toLocaleString('en-IN')}` : ''}
+          <div style={{ fontSize: '11px', color: 'var(--color-text-muted)', display: 'flex', flexDirection: 'column', gap: '1px' }}>
+            <span>
+              Rent ₹{(r.base_rent_paise / 100).toLocaleString('en-IN')}
+              {r.maintenance_paise > 0 ? ` + Maint ₹${(r.maintenance_paise / 100).toLocaleString('en-IN')}` : ''}
+            </span>
+            <span>
+              {r.electricity_finalized ? (
+                <span style={{ color: '#059669', fontWeight: 600 }}>
+                  ⚡ Elec ₹{(r.electricity_amount_paise / 100).toLocaleString('en-IN')} ({r.electricity_units} u)
+                </span>
+              ) : (
+                <span style={{ color: '#d97706', fontWeight: 600 }}>
+                  ⚡ Elec: Readings pending
+                </span>
+              )}
+            </span>
           </div>
         </div>
       ),
@@ -486,33 +510,63 @@ export default function AdminRent() {
       render: (r: RentTrackingItem) => (
         <div>
           {r.status === 'PAID' ? (
-            <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>
-              Reminders permanently stopped
+            <span style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '4px',
+              padding: '2px 8px',
+              borderRadius: 'var(--radius-full, 9999px)',
+              fontSize: '11px',
+              fontWeight: 600,
+              backgroundColor: 'rgba(16, 185, 129, 0.10)',
+              color: '#059669',
+            }}>
+              <CheckCircle2 size={12} /> Settled & Stopped
             </span>
-          ) : r.reminder_count > 0 ? (
+          ) : r.reminder_sent_today ? (
             <div>
               <span style={{
                 display: 'inline-flex',
                 alignItems: 'center',
                 gap: '4px',
-                padding: '2px 7px',
+                padding: '2px 8px',
+                borderRadius: 'var(--radius-full, 9999px)',
+                fontSize: '11px',
+                fontWeight: 700,
+                backgroundColor: 'rgba(16, 185, 129, 0.14)',
+                color: '#059669',
+                border: '1px solid rgba(16, 185, 129, 0.3)',
+              }}>
+                <Check size={12} strokeWidth={2.5} /> Sent Today ({r.last_reminder_sent_formatted || 'Done'})
+              </span>
+              <div style={{ fontSize: '10px', color: 'var(--color-text-muted)', marginTop: '2px' }}>
+                Cycle total: #{r.reminder_count}
+              </div>
+            </div>
+          ) : (r.status === 'OVERDUE' || r.status === 'DUE_TODAY') ? (
+            <div>
+              <span style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '4px',
+                padding: '2px 8px',
                 borderRadius: 'var(--radius-full, 9999px)',
                 fontSize: '11px',
                 fontWeight: 600,
                 backgroundColor: 'rgba(245, 158, 11, 0.12)',
                 color: '#b45309',
               }}>
-                <MessageSquare size={11} /> Reminder #{r.reminder_count}
+                <Clock size={11} /> Ready to send today
               </span>
-              {r.last_reminder_sent_at && (
+              {r.reminder_count > 0 && r.last_reminder_sent_formatted && (
                 <div style={{ fontSize: '10px', color: 'var(--color-text-muted)', marginTop: '2px' }}>
-                  Sent {formatDate(r.last_reminder_sent_at)}
+                  Last: {r.last_reminder_sent_formatted} (#{r.reminder_count})
                 </div>
               )}
             </div>
           ) : (
             <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>
-              0 reminders sent
+              Upcoming cycle
             </span>
           )}
         </div>
@@ -540,13 +594,21 @@ export default function AdminRent() {
           ) : (
             <Button
               size="sm"
-              variant={r.status === 'PAID' ? 'secondary' : 'primary'}
+              variant={r.reminder_sent_today ? 'secondary' : (r.status === 'PAID' ? 'secondary' : 'primary')}
               onClick={() => sendReminderToTenant(r)}
               isLoading={sendingWaTenantId === r.tenant_id}
               disabled={Boolean(sendingWaTenantId && sendingWaTenantId !== r.tenant_id)}
-              title={r.status === 'PAID' ? 'Send Paid Invoice on WhatsApp' : 'Send Due Reminder on WhatsApp'}
+              title={r.reminder_sent_today ? 'Reminder already sent today. Tap to resend if needed.' : (r.status === 'PAID' ? 'Send Paid Invoice on WhatsApp' : 'Send WhatsApp Reminder')}
             >
-              <Send size={14} /> {r.status === 'PAID' ? 'Send Invoice' : 'Send WhatsApp'}
+              {r.reminder_sent_today ? (
+                <>
+                  <Check size={14} style={{ color: '#059669' }} /> Sent Today
+                </>
+              ) : (
+                <>
+                  <Send size={14} /> {r.status === 'PAID' ? 'Send Invoice' : 'Send WhatsApp'}
+                </>
+              )}
             </Button>
           )}
 
@@ -634,7 +696,20 @@ export default function AdminRent() {
           </Button>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginLeft: 'auto' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginLeft: 'auto', flexWrap: 'wrap' }}>
+          <span style={{
+            fontSize: 'var(--font-size-xs)',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '5px',
+            padding: '3px 8px',
+            borderRadius: 'var(--radius-sm)',
+            backgroundColor: 'rgba(16, 185, 129, 0.12)',
+            color: '#059669',
+            fontWeight: 600,
+          }}>
+            <Check size={12} strokeWidth={2.5} /> {summary.reminders_sent_today_count || 0} Sent Today
+          </span>
           <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
             Active Tenants: <strong style={{ color: 'var(--color-text-primary)' }}>{summary.total_active_tenants}</strong>
           </span>
@@ -896,18 +971,36 @@ export default function AdminRent() {
                   </span>
                 )}
 
-                {item.reminder_count > 0 && item.status !== 'PAID' && (
+                {item.reminder_sent_today ? (
+                  <span style={{
+                    fontSize: '10px',
+                    fontWeight: 700,
+                    color: '#059669',
+                    backgroundColor: 'rgba(16, 185, 129, 0.14)',
+                    padding: '2px 6px',
+                    borderRadius: 'var(--radius-sm)',
+                    border: '1px solid rgba(16, 185, 129, 0.3)',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '3px',
+                  }}>
+                    <Check size={10} strokeWidth={2.5} /> Sent Today ({item.last_reminder_sent_formatted || 'Done'})
+                  </span>
+                ) : (item.status === 'OVERDUE' || item.status === 'DUE_TODAY') ? (
                   <span style={{
                     fontSize: '10px',
                     fontWeight: 600,
                     color: '#b45309',
                     backgroundColor: 'rgba(245, 158, 11, 0.12)',
-                    padding: '1px 5px',
+                    padding: '2px 6px',
                     borderRadius: 'var(--radius-sm)',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '3px',
                   }}>
-                    Reminder #{item.reminder_count}
+                    <Clock size={10} /> Ready to send today
                   </span>
-                )}
+                ) : null}
               </div>
             </div>
 
@@ -934,6 +1027,29 @@ export default function AdminRent() {
                 <span style={{ fontSize: '10px', color: 'var(--color-text-secondary)', display: 'block' }}>Due Date</span>
                 <strong style={{ color: 'var(--color-text-primary)' }}>{item.due_date_formatted || formatDate(item.due_date)}</strong>
               </div>
+            </div>
+
+            {/* Itemized breakdown subtext */}
+            <div style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              fontSize: '11px',
+              padding: '0 4px',
+              color: 'var(--color-text-muted)',
+            }}>
+              <span>Maint: ₹{(item.maintenance_paise / 100).toLocaleString('en-IN')}</span>
+              <span>
+                {item.electricity_finalized ? (
+                  <strong style={{ color: '#059669' }}>
+                    ⚡ Elec: ₹{(item.electricity_amount_paise / 100).toLocaleString('en-IN')} ({item.electricity_units}u)
+                  </strong>
+                ) : (
+                  <strong style={{ color: '#d97706' }}>
+                    ⚡ Elec: Readings pending
+                  </strong>
+                )}
+              </span>
             </div>
 
             {/* UTR Note if submitted */}
@@ -973,12 +1089,20 @@ export default function AdminRent() {
               ) : (
                 <Button
                   size="sm"
-                  variant={item.status === 'PAID' ? 'secondary' : 'primary'}
+                  variant={item.reminder_sent_today ? 'secondary' : (item.status === 'PAID' ? 'secondary' : 'primary')}
                   onClick={() => sendReminderToTenant(item)}
                   isLoading={sendingWaTenantId === item.tenant_id}
                   disabled={Boolean(sendingWaTenantId && sendingWaTenantId !== item.tenant_id)}
                 >
-                  <Send size={14} /> {item.status === 'PAID' ? 'Send Invoice' : 'Send WhatsApp'}
+                  {item.reminder_sent_today ? (
+                    <>
+                      <Check size={14} style={{ color: '#059669' }} /> Sent Today
+                    </>
+                  ) : (
+                    <>
+                      <Send size={14} /> {item.status === 'PAID' ? 'Send Invoice' : 'Send WhatsApp'}
+                    </>
+                  )}
                 </Button>
               )}
 
