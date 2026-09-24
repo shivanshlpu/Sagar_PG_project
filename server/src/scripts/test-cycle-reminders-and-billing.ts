@@ -1,6 +1,4 @@
 import { calculateTenantDueDate } from '../services/rent.service';
-import { supabaseAdmin } from '../config/supabase';
-import { formatDateDMY, formatMonthMY } from '../utils/date';
 
 async function runTests() {
   console.log('========================================================================');
