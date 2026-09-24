@@ -2,16 +2,10 @@ import { supabaseAdmin } from '../config/supabase';
 import { cache } from '../config/redis';
 import { sendWhatsAppMessage, decodeBase64Image, getWhatsAppStatus } from './whatsapp.service';
 import { createNotification } from './notifications.service';
-import { getReminderSettings, getWhatsAppMessageTemplates, renderWhatsAppTemplate } from './settings.service';
+import { getWhatsAppMessageTemplates, renderWhatsAppTemplate } from './settings.service';
+import { ensureDueRentRecords } from './rent.service';
 import { formatDateDMY, formatMonthMY } from '../utils/date';
 
-/**
- * Check for overdue or due rent records and dispatch daily reminders via WhatsApp and in-app.
- * Strictly enforces:
- *  1. Exactly once per day per tenant (via Redis / in-memory deduplication).
- *  2. Staggered dispatch across tenants (2–5 seconds interval between users).
- *  3. Rate-limited message sending (max 3 messages/second via WhatsApp queue).
- */
 /**
  * Helper to get current Indian Standard Time (IST) hour (0 - 23)
  */
@@ -25,9 +19,10 @@ function getISTHour(): number {
  * Check for overdue or due rent records and dispatch daily reminders via WhatsApp and in-app.
  * Strictly enforces:
  *  1. Active Daytime Window (06:00 AM to 09:00 PM IST) — no night time disturbances.
- *  2. 5 to 10 minutes gap between consecutive tenants across the day.
- *  3. Exactly once per day per tenant (via Redis / in-memory deduplication).
- *  4. Simulated typing presence & random jitter.
+ *  2. Individual due date arrival check — reminders only sent when tenant's cycle due date actually arrives.
+ *  3. Strictly once every 24 hours per tenant with persistent DB counter & timestamp.
+ *  4. Instant termination if payment is verified and marked as 'paid'.
+ *  5. Staggered dispatch across tenants throughout the day (5 to 10 minutes gap).
  */
 export async function checkAndSendRentReminders(targetPgId?: string): Promise<{
   checked: number;
@@ -42,12 +37,10 @@ export async function checkAndSendRentReminders(targetPgId?: string): Promise<{
     return { checked: 0, sent: 0, skippedAlreadySent: 0, skippedNoPhone: 0 };
   }
 
-
-
   // Current date strings (in IST / local)
   const now = new Date();
   const todayStr = now.toISOString().split('T')[0]; // YYYY-MM-DD
-  const currentDay = now.getDate();
+  const currentMonthStr = todayStr.slice(0, 7);
 
   // 1. Fetch PGs to process
   let pgQuery = supabaseAdmin.from('pgs').select('id, name, upi_id, bank_name, account_number, ifsc_code, account_holder_name, phone');
@@ -74,9 +67,8 @@ export async function checkAndSendRentReminders(targetPgId?: string): Promise<{
       continue;
     }
 
-    // Fetch reminder settings & payment QR for this PG
-    const reminderSettings = await getReminderSettings(pg.id);
-    const rentReminderDay = reminderSettings.rent_reminder_day || 1;
+    // Auto-generate rent records for tenants whose individual due dates have arrived today
+    await ensureDueRentRecords(pg.id, currentMonthStr);
 
     const { data: qrData } = await supabaseAdmin
       .from('settings')
@@ -87,12 +79,13 @@ export async function checkAndSendRentReminders(targetPgId?: string): Promise<{
     const paymentQrStr = qrData?.value ? (typeof qrData.value === 'string' ? qrData.value : (qrData.value.qr || qrData.value.url || null)) : null;
     const qrBuffer = paymentQrStr ? decodeBase64Image(paymentQrStr) : null;
 
-    // 3. Find pending or overdue rent records
+    // 3. Find pending or overdue rent records that are unpaid
     const { data: rentRecords, error: rentError } = await supabaseAdmin
       .from('rent_records')
       .select('*, tenant:tenants(id, user_id, full_name, phone, status, move_in_date), room:rooms(room_number)')
       .eq('pg_id', pg.id)
       .in('status', ['pending', 'overdue'])
+      .is('paid_date', null)
       .order('due_date', { ascending: true });
 
     if (rentError || !rentRecords) {
@@ -100,18 +93,53 @@ export async function checkAndSendRentReminders(targetPgId?: string): Promise<{
       continue;
     }
 
-    // Filter for records that have reached or passed their due date (first reminder goes on the completion day)
-    const eligibleRecords = rentRecords.filter((record) => {
-      const tenant = record.tenant as any;
-      if (!tenant || tenant.status !== 'active') return false;
+    // Filter for records that have reached or passed their due date and haven't had a reminder in 24 hours
+    const eligibleRecords: any[] = [];
 
+    for (const record of rentRecords) {
+      const tenant = record.tenant as any;
+      if (!tenant || tenant.status !== 'active') continue;
+
+      // STOP IMMEDIATELY if marked paid or paid_date exists
+      if (record.status === 'paid' || record.paid_date) continue;
+
+      // Ensure tenant's due date has actually arrived
       const recordDueDate = record.due_date ? record.due_date.split('T')[0] : '';
-      if (recordDueDate) {
-        // Sent on the completion date (recordDueDate === todayStr) or subsequently if overdue
-        return recordDueDate <= todayStr;
+      if (!recordDueDate || recordDueDate > todayStr) {
+        // Due date has not arrived yet! Skip!
+        continue;
       }
-      return currentDay >= rentReminderDay;
-    });
+
+      // Check persistent 24-HOUR rate limit from record.notes
+      let parsedNotes: any = {};
+      if (record.notes) {
+        try { parsedNotes = JSON.parse(record.notes); } catch {}
+      }
+
+      const lastSentAt = parsedNotes.last_reminder_sent_at;
+      if (lastSentAt) {
+        const lastSentTime = new Date(lastSentAt).getTime();
+        if (!isNaN(lastSentTime)) {
+          const elapsedHours = (Date.now() - lastSentTime) / (1000 * 60 * 60);
+          if (elapsedHours < 24) {
+            console.log(`[Reminders] Skipping ${tenant.full_name}: reminder #${parsedNotes.reminder_count || 1} already sent ${elapsedHours.toFixed(1)}h ago (< 24h).`);
+            totalSkippedAlreadySent++;
+            continue;
+          }
+        }
+      }
+
+      // Secondary check in Redis / cache
+      const todayDMY = formatDateDMY(now);
+      const dedupKey = `reminder:rent:${pg.id}:${tenant.id}:${todayDMY}`;
+      const isFirstToday = await cache.setIfNotExists(dedupKey, 'scheduled', 86400); // 24 hours
+      if (!isFirstToday) {
+        totalSkippedAlreadySent++;
+        continue;
+      }
+
+      eligibleRecords.push(record);
+    }
 
     totalChecked += eligibleRecords.length;
 
@@ -129,22 +157,11 @@ export async function checkAndSendRentReminders(targetPgId?: string): Promise<{
         continue;
       }
 
-      // Deduplication key: strictly once per day per tenant, explicitly scoped by pg_id
-      const todayDMY = formatDateDMY(now);
-      const dedupKey = `reminder:rent:${pg.id}:${tenant.id}:${todayDMY}`;
-      const isFirstToday = await cache.setIfNotExists(dedupKey, 'scheduled', 86400); // 24 hours
-
-      if (!isFirstToday) {
-        totalSkippedAlreadySent++;
-        continue;
-      }
+      const dedupKey = `reminder:rent:${pg.id}:${tenant.id}:${formatDateDMY(now)}`;
 
       // Anti-Spam Distribution: Spread reminders across the day with a 5 to 10 minute gap between tenants
-      // First tenant sends in 30 seconds; subsequent tenants are spaced by 5-10 minutes each
       let staggerDelayMs = 0;
       if (staggerIndex > 0) {
-        // Base 5 minutes (300,000 ms) + random jitter between 0 and 5 minutes (up to 300,000 ms)
-        // Gives ~5 to 10 minutes between consecutive tenants
         const randomGapMs = 300_000 + Math.floor(Math.random() * 300_000);
         staggerDelayMs = accumulatedStaggerMs + randomGapMs;
         accumulatedStaggerMs = staggerDelayMs;
@@ -174,12 +191,9 @@ export async function checkAndSendRentReminders(targetPgId?: string): Promise<{
       const dueDateFormatted = formatDateDMY(record.due_date);
       const monthFormatted = formatMonthMY(record.month);
 
-      // Parse itemized breakdown for electricity info
       let parsedNotes: any = {};
       if (record.notes) {
-        try {
-          parsedNotes = JSON.parse(record.notes);
-        } catch {}
+        try { parsedNotes = JSON.parse(record.notes); } catch {}
       }
 
       const electricityUnits = parsedNotes.electricity_units || 0;
@@ -201,24 +215,80 @@ export async function checkAndSendRentReminders(targetPgId?: string): Promise<{
       // Schedule staggered dispatch strictly bound to pg.id
       setTimeout(async () => {
         try {
+          // 1. FRESH DB CHECK right before dispatch
+          const { data: freshRecord, error: freshErr } = await supabaseAdmin
+            .from('rent_records')
+            .select('id, status, paid_date, notes')
+            .eq('id', record.id)
+            .single();
+
+          if (freshErr || !freshRecord) {
+            console.log(`[Reminders] Rent record ${record.id} not found on fresh check. Skipping.`);
+            return;
+          }
+
+          if (freshRecord.status === 'paid' || freshRecord.paid_date) {
+            console.log(`[Reminders] Rent record ${record.id} for ${tenant.full_name} is marked as PAID. Reminders stopped.`);
+            return;
+          }
+
+          let freshNotes: any = {};
+          try { freshNotes = JSON.parse(freshRecord.notes || '{}'); } catch {}
+
+          if (freshNotes.last_reminder_sent_at) {
+            const hoursSince = (Date.now() - new Date(freshNotes.last_reminder_sent_at).getTime()) / (1000 * 60 * 60);
+            if (hoursSince < 24) {
+              console.log(`[Reminders] Fresh check: reminder for ${tenant.full_name} was already sent ${hoursSince.toFixed(1)}h ago. Aborting dispatch.`);
+              return;
+            }
+          }
+
+          // 2. Dispatch WhatsApp message
           await sendWhatsAppMessage(tenantPhone, reminderMessage, {
             pgId: pg.id,
             purpose: 'RENT_REMINDER',
             imageBuffer: qrBuffer,
           });
-          console.log(`[Reminders] WhatsApp reminder sent to ${tenant.full_name} (${tenantPhone}) for ${monthFormatted} (hasQR: ${Boolean(qrBuffer)})`);
 
-          // Mark as sent in deduplication cache
+          // 3. Increment counter and persist last_reminder_sent_at in DB
+          const currentCount = typeof freshNotes.reminder_count === 'number' ? freshNotes.reminder_count : 0;
+          const newCount = currentCount + 1;
+          const nowIso = new Date().toISOString();
+
+          const updatedNotes = {
+            ...freshNotes,
+            reminder_count: newCount,
+            last_reminder_sent_at: nowIso,
+          };
+
+          await supabaseAdmin
+            .from('rent_records')
+            .update({
+              notes: JSON.stringify(updatedNotes),
+              updated_at: nowIso,
+            })
+            .eq('id', record.id);
+
+          // Also persist in settings table as secondary index
+          await supabaseAdmin.from('settings').upsert({
+            pg_id: pg.id,
+            key: `reminder_sent_${pg.id}_${record.id}`,
+            value: { count: newCount, last_sent_at: nowIso, tenant_id: tenant.id },
+            updated_at: nowIso,
+          });
+
           await cache.setWithExpiry(dedupKey, 'sent', 86400);
 
-          // In-app notification for the tenant
+          console.log(`[Reminders] WhatsApp reminder #${newCount} sent to ${tenant.full_name} (${tenantPhone}) for ${monthFormatted}`);
+
+          // 4. In-app notification for the tenant
           if (tenant.user_id) {
             await createNotification({
               userId: tenant.user_id,
               title: 'Rent Payment Due',
               message: `Your rent of ₹${formattedAmount} for ${monthFormatted} is pending. Please complete the payment.`,
               type: 'rent_reminder',
-              metadata: { rentRecordId: record.id, month: record.month, totalDuePaise: record.total_due_paise, pgId: pg.id },
+              metadata: { rentRecordId: record.id, month: record.month, totalDuePaise: record.total_due_paise, pgId: pg.id, reminderCount: newCount },
             }).catch(() => {});
           }
         } catch (err: any) {
@@ -242,19 +312,19 @@ let cronInterval: NodeJS.Timeout | null = null;
 
 /**
  * Starts the automated daily reminder scheduler.
- * Runs once every hour, safely deduplicating so each tenant receives at most 1 reminder per day.
+ * Runs once every hour, strictly checking persistent DB timestamps and enforcing 24h intervals.
  */
 export function startReminderCron(): void {
   if (cronInterval) return;
 
-  console.log('[Reminders] Starting automated rent reminder scheduler (hourly check, strictly once-per-day per tenant)...');
+  console.log('[Reminders] Starting automated rent reminder scheduler (hourly check, strictly 24h per tenant, persistent counter)...');
 
-  // Initial check after 30 seconds (gives DB & WhatsApp time to connect)
+  // Initial check after 2 minutes (gives DB & WhatsApp time to stabilize, avoiding bursts on rapid server reloads)
   setTimeout(() => {
     checkAndSendRentReminders().catch((err) => {
       console.error('[Reminders] Initial check error:', err.message);
     });
-  }, 30_000);
+  }, 120_000);
 
   // Hourly check
   cronInterval = setInterval(() => {

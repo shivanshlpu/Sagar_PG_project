@@ -6,12 +6,16 @@ import { getPG } from './pg.service';
 import { formatDateDMY, formatMonthMY } from '../utils/date';
 import { generateRentInvoicePdf } from './invoicePdf.service';
 
-export function calculateTenantDueDate(month: string, moveInDate?: string | null, fallbackDay: number = 5): string {
+export function calculateTenantDueDate(month: string, moveInDate?: string | null, fallbackDay: number = 1): string {
   let day = fallbackDay;
   if (moveInDate) {
-    const d = new Date(moveInDate).getDate();
-    if (!isNaN(d) && d >= 1 && d <= 31) {
-      day = d;
+    const datePart = moveInDate.split('T')[0];
+    const parts = datePart.split('-');
+    if (parts.length >= 3) {
+      const parsedDay = parseInt(parts[2], 10);
+      if (!isNaN(parsedDay) && parsedDay >= 1 && parsedDay <= 31) {
+        day = parsedDay;
+      }
     }
   }
   const [yearStr, monthStr] = month.split('-');
@@ -22,8 +26,51 @@ export function calculateTenantDueDate(month: string, moveInDate?: string | null
   return `${month}-${String(clampedDay).padStart(2, '0')}T00:00:00Z`;
 }
 
-export async function ensureCurrentMonthRent(pgId: string, targetMonth?: string) {
-  const month = targetMonth || new Date().toISOString().slice(0, 7);
+export function isTenantDueForGeneration(
+  month: string,
+  moveInDate: string | null | undefined,
+  todayStr: string
+): { isDue: boolean; dueDate: string; reason?: string } {
+  // If tenant has move-in date:
+  if (moveInDate) {
+    const moveInDateStr = moveInDate.split('T')[0];
+    const moveInMonth = moveInDateStr.slice(0, 7);
+    if (moveInMonth > month) {
+      return { isDue: false, dueDate: '', reason: 'Tenant had not moved in yet during this month' };
+    }
+  }
+
+  const tenantDueDate = calculateTenantDueDate(month, moveInDate, 1);
+  const dueDateStr = tenantDueDate.split('T')[0];
+  const currentMonthStr = todayStr.slice(0, 7);
+
+  // Future month: never generate in advance
+  if (month > currentMonthStr) {
+    return { isDue: false, dueDate: tenantDueDate, reason: `Month ${month} is in the future` };
+  }
+
+  // Current month: ONLY generate if tenant's specific due date has arrived (due day <= today)
+  if (month === currentMonthStr) {
+    if (dueDateStr > todayStr) {
+      return { isDue: false, dueDate: tenantDueDate, reason: `Due date (${dueDateStr}) has not arrived yet` };
+    }
+  }
+
+  // Past month or due date has arrived today or earlier
+  return { isDue: true, dueDate: tenantDueDate };
+}
+
+export async function ensureDueRentRecords(pgId: string, targetMonth?: string) {
+  const now = new Date();
+  const todayStr = now.toISOString().slice(0, 10); // YYYY-MM-DD
+  const currentMonthStr = todayStr.slice(0, 7); // YYYY-MM
+  const month = targetMonth || currentMonthStr;
+
+  // Never generate future months in advance
+  if (month > currentMonthStr) {
+    return [];
+  }
+
   try {
     const billingSettings = await getBillingSettings(pgId);
 
@@ -50,13 +97,21 @@ export async function ensureCurrentMonthRent(pgId: string, targetMonth?: string)
 
     if (missingTenants.length === 0) return [];
 
+    // Filter ONLY tenants whose individual due date has actually arrived
+    const dueTenants = missingTenants.filter((tenant) => {
+      const check = isTenantDueForGeneration(month, tenant.move_in_date, todayStr);
+      return check.isDue;
+    });
+
+    if (dueTenants.length === 0) return [];
+
     // Fetch electricity bills for this month if any
     const { data: existingElBills } = await supabaseAdmin
       .from('electricity_bills')
       .select('id, tenant_id, units_consumed, rate_per_unit_paise, total_amount_paise')
       .eq('pg_id', pgId)
       .eq('month', month)
-      .in('tenant_id', missingTenants.map((t) => t.id));
+      .in('tenant_id', dueTenants.map((t) => t.id));
 
     const elBillMap = new Map<string, any>();
     if (existingElBills) {
@@ -89,7 +144,7 @@ export async function ensureCurrentMonthRent(pgId: string, targetMonth?: string)
       // Gracefully proceed if PG profile cannot be resolved
     }
 
-    const records = missingTenants.map((tenant) => {
+    const records = dueTenants.map((tenant) => {
       const tenantData = tenant as any;
       const baseRent = Array.isArray(tenantData.rooms)
         ? (tenantData.rooms[0]?.base_rent_paise || 0)
@@ -100,6 +155,8 @@ export async function ensureCurrentMonthRent(pgId: string, targetMonth?: string)
       const elAmount = elBill?.total_amount_paise || 0;
       const totalDue = baseRent + maintenance + elAmount;
 
+      const tenantDueDate = calculateTenantDueDate(month, tenantData.move_in_date, 1);
+
       const itemizedNotes = JSON.stringify({
         base_rent_paise: baseRent,
         maintenance_paise: maintenance,
@@ -109,10 +166,9 @@ export async function ensureCurrentMonthRent(pgId: string, targetMonth?: string)
         electricity_amount_paise: elAmount,
         total_due_paise: totalDue,
         pg_snapshot: pgProfileSnapshot,
+        reminder_count: 0,
+        last_reminder_sent_at: null,
       });
-
-      // Tenant's due date is their individual cycle completion date based on move-in day
-      const tenantDueDate = calculateTenantDueDate(month, tenantData.move_in_date, 5);
 
       return {
         pg_id: pgId,
@@ -139,10 +195,13 @@ export async function ensureCurrentMonthRent(pgId: string, targetMonth?: string)
     }
     return inserted || [];
   } catch (err: any) {
-    console.warn('[RentService] Failed in ensureCurrentMonthRent:', err?.message);
+    console.warn('[RentService] Failed in ensureDueRentRecords:', err?.message);
     return [];
   }
 }
+
+// Backwards-compatible alias
+export const ensureCurrentMonthRent = ensureDueRentRecords;
 
 export async function listRentRecords(
   pgId: string,
@@ -215,6 +274,15 @@ export async function generateRentRecords(
   dueDate?: string,
   actor?: { id: string; email: string }
 ) {
+  const now = new Date();
+  const todayStr = now.toISOString().slice(0, 10);
+  const currentMonthStr = todayStr.slice(0, 7);
+
+  // Future month validation for bulk generation
+  if ((!tenantIds || tenantIds.length === 0) && month > currentMonthStr) {
+    throw new Error('Cannot generate rent for future months in advance. Rent records are generated when each tenant\'s specific due date arrives.');
+  }
+
   // Get billing settings for default maintenance charge & electricity rate
   const billingSettings = await getBillingSettings(pgId);
 
@@ -247,13 +315,31 @@ export async function generateRentRecords(
 
   const existingTenantIds = new Set(existingCheck.data?.map(r => r.tenant_id) || []);
 
+  // Filter ONLY tenants whose individual due date has actually arrived
+  const eligibleTenants = tenants
+    .filter(t => !existingTenantIds.has(t.id))
+    .filter(tenant => {
+      // If admin explicitly requested specific tenant IDs, allow generation
+      if (tenantIds && tenantIds.length > 0) return true;
+      // Otherwise, strictly only generate for tenants whose individual due date has arrived
+      const check = isTenantDueForGeneration(month, tenant.move_in_date, todayStr);
+      return check.isDue;
+    });
+
+  if (eligibleTenants.length === 0) {
+    if (existingTenantIds.size === tenants.length) {
+      throw new Error(`Rent records already exist for all specified tenants for ${month}`);
+    }
+    throw new Error(`No tenants have reached their due date for ${month} yet. Rent records are generated when each tenant's specific due date arrives.`);
+  }
+
   // Fetch any pre-existing electricity bills for this month
   const { data: existingElBills } = await supabaseAdmin
     .from('electricity_bills')
     .select('id, tenant_id, units_consumed, rate_per_unit_paise, total_amount_paise')
     .eq('pg_id', pgId)
     .eq('month', month)
-    .in('tenant_id', tenants.map(t => t.id));
+    .in('tenant_id', eligibleTenants.map(t => t.id));
 
   const elBillMap = new Map<string, any>();
   if (existingElBills) {
@@ -286,45 +372,45 @@ export async function generateRentRecords(
     // Gracefully proceed
   }
 
-  const records = tenants
-    .filter(t => !existingTenantIds.has(t.id))
-    .map(tenant => {
-      const tenantData = tenant as any;
-      const baseRent = Array.isArray(tenantData.rooms)
-        ? (tenantData.rooms[0]?.base_rent_paise || 0)
-        : (tenantData.rooms?.base_rent_paise || 0);
+  const records = eligibleTenants.map(tenant => {
+    const tenantData = tenant as any;
+    const baseRent = Array.isArray(tenantData.rooms)
+      ? (tenantData.rooms[0]?.base_rent_paise || 0)
+      : (tenantData.rooms?.base_rent_paise || 0);
 
-      const maintenance = billingSettings.maintenance_charge_paise || 0;
-      const elBill = elBillMap.get(tenant.id);
-      const elAmount = elBill?.total_amount_paise || 0;
-      const totalDue = baseRent + maintenance + elAmount;
+    const maintenance = billingSettings.maintenance_charge_paise || 0;
+    const elBill = elBillMap.get(tenant.id);
+    const elAmount = elBill?.total_amount_paise || 0;
+    const totalDue = baseRent + maintenance + elAmount;
 
-      const itemizedNotes = JSON.stringify({
-        base_rent_paise: baseRent,
-        maintenance_paise: maintenance,
-        electricity_bill_id: elBill?.id || null,
-        electricity_units: elBill?.units_consumed || 0,
-        electricity_rate_per_unit_paise: elBill?.rate_per_unit_paise || billingSettings.electricity_rate_per_unit_paise,
-        electricity_amount_paise: elAmount,
-        total_due_paise: totalDue,
-        pg_snapshot: pgProfileSnapshot,
-      });
+    const tenantDueDate = dueDate || calculateTenantDueDate(month, tenantData.move_in_date, 1);
 
-      const tenantDueDate = dueDate || calculateTenantDueDate(month, tenantData.move_in_date, 5);
-
-      return {
-        pg_id: pgId,
-        tenant_id: tenant.id,
-        room_id: tenant.room_id,
-        month,
-        rent_amount_paise: baseRent,
-        late_fee_paise: 0,
-        total_due_paise: totalDue,
-        status: 'pending',
-        due_date: tenantDueDate,
-        notes: itemizedNotes,
-      };
+    const itemizedNotes = JSON.stringify({
+      base_rent_paise: baseRent,
+      maintenance_paise: maintenance,
+      electricity_bill_id: elBill?.id || null,
+      electricity_units: elBill?.units_consumed || 0,
+      electricity_rate_per_unit_paise: elBill?.rate_per_unit_paise || billingSettings.electricity_rate_per_unit_paise,
+      electricity_amount_paise: elAmount,
+      total_due_paise: totalDue,
+      pg_snapshot: pgProfileSnapshot,
+      reminder_count: 0,
+      last_reminder_sent_at: null,
     });
+
+    return {
+      pg_id: pgId,
+      tenant_id: tenant.id,
+      room_id: tenant.room_id,
+      month,
+      rent_amount_paise: baseRent,
+      late_fee_paise: 0,
+      total_due_paise: totalDue,
+      status: 'pending',
+      due_date: tenantDueDate,
+      notes: itemizedNotes,
+    };
+  });
 
   if (records.length === 0) {
     throw new Error('Rent records already exist for all specified tenants this month');

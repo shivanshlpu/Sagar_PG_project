@@ -1,9 +1,9 @@
 import React from 'react';
 import { ResponsiveTable, type ResponsiveColumn } from '../components/common/ResponsiveTable';
-import { Badge, getStatusBadgeVariant, Button, Modal, FormField, Input, Select } from '../components/ui';
+import { Button, Modal, FormField, Input } from '../components/ui';
 import { useToast } from '../components/ui/Toast';
 import { useAuth } from '../hooks/useAuth';
-import { apiGet, apiPost, apiPatch, formatCurrency, formatMonth } from '../lib/api';
+import { apiGet, apiPost, formatCurrency, formatMonth } from '../lib/api';
 import { formatDate } from '../lib/date';
 import { Banknote, Plus, FileText, Send } from 'lucide-react';
 import { RentInvoiceModal } from '../components/billing/RentInvoiceModal';
@@ -28,18 +28,16 @@ export default function AdminRent() {
   const [showGenerate, setShowGenerate] = React.useState(false);
   const [month, setMonth] = React.useState(currentMonthStr);
   const [monthFilter, setMonthFilter] = React.useState(currentMonthStr);
-  const [statusFilter, setStatusFilter] = React.useState('');
   const [selectedBill, setSelectedBill] = React.useState<RentRecord | null>(null);
   const [sendingWaId, setSendingWaId] = React.useState<string | null>(null);
   const { showToast } = useToast();
 
-  React.useEffect(() => { loadRecords(); }, [monthFilter, statusFilter]);
+  React.useEffect(() => { loadRecords(); }, [monthFilter]);
 
   async function loadRecords() {
     setIsLoading(true);
     const params = new URLSearchParams();
     if (monthFilter) params.set('month', monthFilter);
-    if (statusFilter) params.set('status', statusFilter);
     const res = await apiGet<RentRecord[]>(`/rent?${params}`);
     if (res.success && res.data) {
       const d = res.data;
@@ -57,15 +55,6 @@ export default function AdminRent() {
     } else {
       showToast(res.error || 'Failed to generate', 'error');
     }
-  }
-
-  async function updateStatus(id: string, status: string) {
-    const res = await apiPatch(`/rent/${id}/status`, { status });
-    if (res.success) {
-      showToast(status === 'paid' ? 'Payment marked as Paid & verified bill sent to WhatsApp!' : 'Status updated');
-      loadRecords();
-    }
-    else showToast(res.error || 'Update failed', 'error');
   }
 
   async function sendWhatsAppBill(rentId: string) {
@@ -96,7 +85,6 @@ export default function AdminRent() {
     { key: 'rent_amount_paise', header: 'Rent', render: (r: RentRecord) => <span className="tabular-nums">{formatCurrency(r.rent_amount_paise)}</span> },
     { key: 'total_due_paise', header: 'Total Due', render: (r: RentRecord) => <span className="tabular-nums" style={{ fontWeight: 600 }}>{formatCurrency(r.total_due_paise)}</span>, sortable: true },
     { key: 'due_date', header: 'Due Date', render: (r: RentRecord) => formatDate(r.due_date) },
-    { key: 'status', header: 'Status', render: (r: RentRecord) => <Badge variant={getStatusBadgeVariant(r.status)}>{r.status}</Badge> },
   ];
 
   return (
@@ -125,18 +113,6 @@ export default function AdminRent() {
         >
           {monthFilter ? 'Show All Months' : 'Show Current Month'}
         </Button>
-        <Select
-          options={[
-            { value: '', label: 'All Statuses' },
-            { value: 'pending', label: 'Pending' },
-            { value: 'paid', label: 'Paid' },
-            { value: 'overdue', label: 'Overdue' },
-            { value: 'waived', label: 'Waived' },
-          ]}
-          value={statusFilter}
-          onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setStatusFilter(e.target.value)}
-          style={{ maxWidth: '180px' }}
-        />
         {monthFilter && (
           <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', marginLeft: 'auto' }}>
             Viewing: <strong style={{ color: 'var(--color-primary)' }}>{formatMonth(monthFilter)}</strong> ({records.length} records)
@@ -157,7 +133,6 @@ export default function AdminRent() {
                   {record.room?.room_number ? `Room ${record.room.room_number}` : ''} • {formatMonth(record.month)}
                 </span>
               </div>
-              <Badge variant={getStatusBadgeVariant(record.status)}>{record.status}</Badge>
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', margin: '12px 0', fontSize: 'var(--font-size-sm)' }}>
@@ -189,18 +164,6 @@ export default function AdminRent() {
               >
                 <Send size={14} /> Send WhatsApp
               </Button>
-              {record.status !== 'paid' && (
-                <Select
-                  options={[
-                    { value: '', label: 'Status...' },
-                    { value: 'paid', label: 'Mark Paid' },
-                    { value: 'overdue', label: 'Mark Overdue' },
-                    { value: 'waived', label: 'Waive' },
-                  ]}
-                  onChange={(e: React.ChangeEvent<HTMLSelectElement>) => { if (e.target.value) updateStatus(record.id, e.target.value); }}
-                  style={{ fontSize: 'var(--font-size-xs)', padding: '4px 8px', maxWidth: '120px' }}
-                />
-              )}
             </div>
           </div>
         )}
@@ -221,18 +184,6 @@ export default function AdminRent() {
             >
               <Send size={15} />
             </button>
-            {row.status !== 'paid' ? (
-              <Select
-                options={[
-                  { value: '', label: 'Change...' },
-                  { value: 'paid', label: 'Mark Paid' },
-                  { value: 'overdue', label: 'Mark Overdue' },
-                  { value: 'waived', label: 'Waive' },
-                ]}
-                onChange={(e: React.ChangeEvent<HTMLSelectElement>) => { if (e.target.value) updateStatus(row.id, e.target.value); }}
-                style={{ fontSize: 'var(--font-size-xs)', padding: '4px 8px', maxWidth: '120px' }}
-              />
-            ) : null}
           </div>
         )}
         emptyState={
@@ -251,7 +202,7 @@ export default function AdminRent() {
           <Button onClick={generateRecords}>Generate</Button>
         </div>
       }>
-        <FormField label="Month" required hint="Generates rent records for all active tenants with room assignments">
+        <FormField label="Month" required hint="Generates rent records for tenants whose due dates have arrived for the selected month (based on individual move-in dates)">
           <Input type="month" value={month} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setMonth(e.target.value)} />
         </FormField>
       </Modal>
