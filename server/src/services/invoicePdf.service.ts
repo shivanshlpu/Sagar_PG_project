@@ -104,13 +104,18 @@ export async function generateRentInvoicePdf(pgId: string, record: any): Promise
     try {
       const doc = new PDFDocument({
         size: 'A4',
-        margin: 36,
+        margin: 0,
+        compress: true,
+        autoFirstPage: true,
         info: {
           Title: `Rent Invoice - ${monthFormatted} - ${tenantName}`,
           Author: pgName,
           Subject: `Rent Bill for ${monthFormatted}`,
         },
       });
+
+      // Strict Single-Page Guarantee: Prevents PDFKit from creating any extra page under any condition
+      (doc as any).addPage = () => doc;
 
       const chunks: Buffer[] = [];
       doc.on('data', (c) => chunks.push(c));
@@ -445,19 +450,19 @@ export async function generateRentInvoicePdf(pgId: string, record: any): Promise
       );
 
       // 6. Bottom Decorative Ribbon
-      const ribbonY = 808;
-      doc.rect(0, ribbonY, pageWidth, 34).fill('#0f2942');
+      const ribbonY = 812;
+      doc.rect(0, ribbonY, pageWidth, 30).fill('#0f2942');
       doc.font('Helvetica-Bold').fontSize(8).fillColor('#ffffff').text(
         'Comfortable Homes   |   Happy Tenants   |   Better Living',
         0,
-        ribbonY + 8,
-        { width: pageWidth, align: 'center' }
+        ribbonY + 6,
+        { width: pageWidth, align: 'center', lineBreak: false }
       );
       doc.font('Helvetica').fontSize(7).fillColor('#94a3b8').text(
         `This is a computer-generated immutable digital invoice generated for ${tenantName}. All dates are in DD/MM/YYYY.`,
         0,
-        ribbonY + 19,
-        { width: pageWidth, align: 'center' }
+        ribbonY + 17,
+        { width: pageWidth, align: 'center', lineBreak: false }
       );
 
       doc.end();
